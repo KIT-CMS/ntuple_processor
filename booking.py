@@ -7,6 +7,8 @@ from .utils import Action
 from .utils import Count
 from .utils import Histogram
 
+from ROOT import gROOT
+gROOT.SetBatch(True)
 from ROOT import TFile
 
 import os
