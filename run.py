@@ -149,8 +149,11 @@ class RunManager:
                     ftag_fchain[friend.tag] = TChain()
                 ftag_fchain[friend.tag].Add('{}/{}'.format(
                     friend.path, friend.directory))
-        for ch in ftag_fchain.values():
-            chain.AddFriend(ch)
+        for tag, ch in ftag_fchain.items():
+            if tag is None:
+                chain.AddFriend(ch)
+            else:
+                chain.AddFriend(ch, tag)
             # Keep friend chains alive
             self.friend_tchains.append(ch)
         if self.nthreads != 1:
