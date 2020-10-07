@@ -60,6 +60,8 @@ class RunManager:
             loops = rcw.frame.GetNRuns()
             if loops != 1:
                 logger.warning('Event loop run {} times'.format(loops))
+            if logger.getEffectiveLevel() == logging.DEBUG:
+                rcw.frame.Report().Print()
         end = time()
         logger.debug('Event loop for graph {:} run in {:.2f} seconds'.format(
             repr(graph), end - start))
@@ -189,12 +191,16 @@ class RunManager:
 
         # Create macro cut string from sub-cuts applied
         # (saved earlier as rdf columns)
+        cut_name = name.replace("#", "_")
+        cut_name = cut_name.replace("-", "_")
+        cut_name = "cut_" + cut_name
         cut_expression = ' && '.join(['(' + cut.expression + ')' for cut in rcw.cuts])
         if cut_expression:
-            rcw.frame = rcw.frame.Filter(cut_expression)
             # Check for assignments in cut expression
             if re.search("(?<!(=|!|<|>))=(?!=)", cut_expression) is not None:
                 logger.warning("Found assignment in cut string. Is this intended?")
+            for cut in rcw.cuts:
+                rcw.frame = rcw.frame.Filter(cut.expression, cut_name + ":" + cut.name)
 
         # Create std::vector with the histogram edges
         l_edges = vector['double']()
