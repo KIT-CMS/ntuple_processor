@@ -208,17 +208,38 @@ class RunManager:
             l_edges.push_back(edge)
 
         if not weight_expression:
-            logger.debug('%%%%%%%%%% Attaching histogram called {}'.format(name))
-            histo = rcw.frame.Histo1D((
-                    name, name, nbins, l_edges.data()),
-                    var)
+            # If the histogram variable is built from different columns,
+            # define a column with the expression first and fill this
+            # new column in the histogram.
+            if re.search("(&&|\|\||\+|-|<=|>=|<|>|==|!=)", var):
+                varname = name.split("#")[-1]
+                rcw.frame = rcw.frame.Define(varname, var)
+                logger.debug('%%%%%%%%%% Attaching histogram called {}'.format(name))
+                histo = rcw.frame.Histo1D((
+                        name, name, nbins, l_edges.data()),
+                        varname)
+            else:
+                logger.debug('%%%%%%%%%% Attaching histogram called {}'.format(name))
+                histo = rcw.frame.Histo1D((
+                        name, name, nbins, l_edges.data()),
+                        var)
         else:
             weight_name = name.replace('#', '_')
             weight_name = weight_name.replace('-', '_')
             rcw.frame = rcw.frame.Define(weight_name, weight_expression)
             logger.debug('%%%%%%%%%% Attaching histogram called {}'.format(name))
-            histo = rcw.frame.Histo1D((
-                name, name, nbins, l_edges.data()),
-                var, weight_name)
+            # If the histogram variable is built from different columns,
+            # define a column with the expression first and fill this
+            # new column in the histogram.
+            if re.search("(&&|\|\||\+|-|<=|>=|<|>|==|!=)", var):
+                varname = name.split("#")[-1]
+                rcw.frame = rcw.frame.Define(varname, var)
+                histo = rcw.frame.Histo1D((
+                        name, name, nbins, l_edges.data()),
+                        varname, weight_name)
+            else:
+                histo = rcw.frame.Histo1D((
+                    name, name, nbins, l_edges.data()),
+                    var, weight_name)
 
         return histo
