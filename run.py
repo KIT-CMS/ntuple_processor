@@ -1,5 +1,6 @@
 from multiprocessing import Pool
 from time import time
+import re
 
 from .utils import Count
 from .utils import Histogram
@@ -188,6 +189,9 @@ class RunManager:
         cut_expression = ' && '.join(['(' + cut.expression + ')' for cut in rcw.cuts])
         if cut_expression:
             rcw.frame = rcw.frame.Filter(cut_expression)
+            # Check for assignments in cut expression
+            if re.search("(?<!(=|!|<|>))=(?!=)", cut_expression) is not None:
+                logger.warning("Found assignment in cut string. Is this intended?")
 
         # Create std::vector with the histogram edges
         l_edges = vector['double']()
