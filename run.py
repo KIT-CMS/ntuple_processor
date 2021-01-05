@@ -196,11 +196,14 @@ class RunManager:
         cut_name = "cut_" + cut_name
         cut_expression = ' && '.join(['(' + cut.expression + ')' for cut in rcw.cuts])
         if cut_expression:
+            if logger.getEffectiveLevel() == logging.DEBUG:
+                for cut in rcw.cuts:
+                    rcw.frame = rcw.frame.Filter(cut.expression, cut_name + ":" + cut.name)
+            else:
+                rcw.frame = rcw.frame.Filter(cut_expression)
             # Check for assignments in cut expression
             if re.search("(?<!(=|!|<|>))=(?!=)", cut_expression) is not None:
                 logger.warning("Found assignment in cut string. Is this intended?")
-            for cut in rcw.cuts:
-                rcw.frame = rcw.frame.Filter(cut.expression, cut_name + ":" + cut.name)
 
         # Create std::vector with the histogram edges
         l_edges = vector['double']()
