@@ -44,24 +44,28 @@ class RunManager:
         self.graphs = graphs
         self.tchains = list()
         self.friend_tchains = list()
-        self.rcws = list()
 
     def _run_multiprocess(self, graph):
         start = time()
-        ptrs = self.node_to_root(graph)
+        ptrs, diags = self.node_to_root(graph)
         logger.debug('%%%%%%%%%% Ready to produce a subset of {} shapes'.format(
             len(ptrs)))
+        if logger.getEffectiveLevel() == logging.DEBUG:
+            reports = [node.Report() for node in diags]
         results = list()
         for ptr in ptrs:
             th = ptr.GetValue()
             results.append(th)
         # Sanity check: event loop run only once for each RDataFrame
-        for rcw in self.rcws:
-            loops = rcw.frame.GetNRuns()
+        for diag_node in diags:
+            loops = diag_node.GetNRuns()
             if loops != 1:
                 logger.warning('Event loop run {} times'.format(loops))
-            if logger.getEffectiveLevel() == logging.DEBUG:
-                rcw.frame.Report().Print()
+
+        if logger.getEffectiveLevel() == logging.DEBUG:
+            for report in reports:
+                report.Print()
+
         end = time()
         logger.debug('Event loop for graph {:} run in {:.2f} seconds'.format(
             repr(graph), end - start))
@@ -101,16 +105,19 @@ class RunManager:
             op.Write()
         root_file.Close()
 
-    def node_to_root(self, node, final_results = None, rcw = None):
+    def node_to_root(self, node, final_results = None, rcw = None, primary_nodes = None):
         if final_results is None:
             final_results = list()
+        if primary_nodes is None:
+            primary_nodes = list()
         if node.kind == 'dataset':
             logger.debug('%%%%%%%%%% node_to_root, converting to ROOT language the following dataset node\n{}'.format(
                 node))
             result = self.__rdf_from_dataset(
                 node.unit_block)
-            if result not in self.rcws:
-                self.rcws.append(result)
+            prim_node = result.frame
+            if prim_node not in primary_nodes:
+                primary_nodes.append(prim_node)
         elif node.kind == 'selection':
             if len(node.children) > 1:
                 logger.debug('%%%%%%%%%% node_to_root, converting to ROOT language the following crossroad node\n{}'.format(
@@ -128,10 +135,10 @@ class RunManager:
                     rcw, node.unit_block)
         if node.children:
             for child in node.children:
-                self.node_to_root(child, final_results, result)
+                self.node_to_root(child, final_results, result, primary_nodes)
         else:
             final_results.append(result)
-        return final_results
+        return final_results, primary_nodes
 
     def __rdf_from_dataset(self, dataset):
         t_names = [ntuple.directory for ntuple in \
