@@ -128,7 +128,7 @@ class RemoveCut(Variation):
                 if cut.name == self.removed_name]):
             logger.fatal('Cut {} not found in any selection of this Unit'.format(self.removed_name))
             raise NameError
-        new_selections = [selection for selection in unit.selections]
+        new_selections = [deepcopy(selection) for selection in unit.selections]
         for new_selection in new_selections:
             new_selection.remove_cut(self.removed_name)
         return Unit(unit.dataset, new_selections, unit.actions, self)
