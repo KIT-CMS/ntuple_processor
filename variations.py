@@ -100,7 +100,7 @@ class ReplaceWeight(Variation):
         new_selections = list()
         for selection in unit.selections:
             copy_weights = list()
-            for weight in selection.weights:
+            for weight in selection.weights:                
                 if weight.name == self.replaced_name:
                     logger.debug('Substitute {} with {} in selection {}'.format(
                         weight, self.weight, selection))
@@ -123,6 +123,7 @@ class RemoveCut(Variation):
     def create(self, unit):
         # Check that the name is present in at least one of the selections and raise an
         # error if not
+        
         if not set([cut.name for selection in unit.selections for cut in selection.cuts \
                 if cut.name == self.removed_name]):
             logger.fatal('Cut {} not found in any selection of this Unit'.format(self.removed_name))
@@ -137,15 +138,16 @@ class RemoveWeight(Variation):
             name, removed_name):
         Variation.__init__(self, name)
         self.removed_name = removed_name
-
+        
     def create(self, unit):
+        
         # Check that the name is present in at least one of the selections and raise an
         # error if not
         if not set([weight.name for selection in unit.selections for weight in selection.weights \
                 if weight.name == self.removed_name]):
             logger.fatal('Weight {} not found in any selection of this Unit'.format(self.removed_name))
             raise NameError
-        new_selections = [selection for selection in unit.selections]
+        new_selections = [deepcopy(selection) for selection in unit.selections]
         for new_selection in new_selections:
             new_selection.remove_weight(self.removed_name)
         return Unit(unit.dataset, new_selections, unit.actions, self)
@@ -182,19 +184,22 @@ class SquareWeight(Variation):
             name, weight_name):
         Variation.__init__(self, name)
         self.weight_name = weight_name
+        
 
     def create(self, unit):
+        
         # Check that the name is present in at least one of the selections and raise an
         # error if not
         if not set([weight.name for selection in unit.selections for weight in selection.weights \
                 if weight.name == self.weight_name]):
             logger.fatal('Weight {} not found in any selection of this Unit'.format(self.weight_name))
             raise NameError
-        new_selections = [selection for selection in unit.selections]
+        new_selections = [deepcopy(selection) for selection in unit.selections]
         for new_selection in new_selections:
             for weight in new_selection.weights:
-                if weight.name == self.name:
+                if weight.name == self.weight_name:
                     weight.square()
+                    
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
