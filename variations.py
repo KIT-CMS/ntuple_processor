@@ -220,3 +220,16 @@ class ReplaceMultipleCuts(Variation):
         for replace_cut in self.replace_cuts:
             unit = replace_cut.create(unit)
         return unit
+
+
+class ReplaceMultipleCutsAndAddWeight(Variation):
+    def __init__(self,
+            name, replaced_names, cuts, weight):
+        Variation.__init__(self, name)
+        self.replace_cuts = [ReplaceCut(name, rep_name, cut) for rep_name, cut in zip(replaced_names, cuts)]
+        self.add_weight = AddWeight(name, weight)
+
+    def create(self, unit):
+        for replace_cut in self.replace_cuts:
+            unit = replace_cut.create(unit)
+        return self.add_weight.create(unit)
