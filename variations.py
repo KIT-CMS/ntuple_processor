@@ -238,3 +238,29 @@ class ReplaceMultipleCutsAndAddWeight(Variation):
         for replace_cut in self.replace_cuts:
             unit = replace_cut.create(unit)
         return self.add_weight.create(unit)
+
+
+class ChangeDatasetReplaceCutAndAddWeight(Variation):
+    def __init__(self,
+            name, folder_name, replaced_name, cut, weight):
+        Variation.__init__(self, name)
+        self.change_dataset = ChangeDataset(name, folder_name)
+        self.repl_and_add_weight = ReplaceCutAndAddWeight(name, replaced_name,
+                                                          cut, weight)
+
+    def create(self, unit):
+        unit = self.change_dataset.create(unit)
+        return self.repl_and_add_weight.create(unit)
+
+
+class ChangeDatasetReplaceMultipleCutsAndAddWeight(Variation):
+    def __init__(self,
+            name, folder_name, replaced_names, cuts, weight):
+        Variation.__init__(self, name)
+        self.change_dataset = ChangeDataset(name, folder_name)
+        self.repl_and_add_weight = ReplaceMultipleCutsAndAddWeight(
+                name, replaced_names, cuts, weight)
+
+    def create(self, unit):
+        unit = self.change_dataset.create(unit)
+        return self.repl_and_add_weight.create(unit)
