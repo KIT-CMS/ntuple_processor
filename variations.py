@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 from .booking import Unit
+from .booking import dataset_from_crownoutput
 from .booking import dataset_from_artusoutput
 from .utils import Selection
 from .utils import Variation
@@ -8,7 +9,41 @@ from .utils import Variation
 import logging
 logger = logging.getLogger(__name__)
 
+class ChangeDatasetCrown(Variation):
+    """
+    Variation that with the method create makes a deepcopy of
+    the selections and actions inside the unit passed as argument and substitutes
+    the directory attribute with the according variation.
 
+    Args:
+        name (str): name used to identify the instance of
+            this class
+        variation (str)
+    """
+    def __init__(self,
+            name, variation):
+        Variation.__init__(self, name)
+        self.variation = variation
+
+    def create(self, unit):
+        new_selections = deepcopy(unit.selections)
+        new_actions = deepcopy(unit.actions)
+        if self.variation not in unit.dataset.quantities_per_vars:
+            logger.fatal('Variation {} not found in ntuple'.format(self.variation))
+            raise NameError
+        else:
+            list_of_quants = unit.dataset.quantities_per_vars[self.variation]
+            for quant_i in list_of_quants:
+                for cut_i in range(len(new_selections[0].cuts)):
+                    if quant_i in new_selections[0].cuts[cut_i].expression:
+                        new_selections[0].cuts[cut_i].expression = new_selections[0].cuts[cut_i].expression.replace(quant_i, "{quant}__{var}".format(quant=quant_i, var=self.variation))
+                for weight_i in range(len(new_selections[1].weights)):
+                    if quant_i in new_selections[1].weights[weight_i].expression:
+                        new_selections[1].weights[weight_i].expression = new_selections[1].weights[weight_i].expression.replace(quant_i, "{quant}__{var}".format(quant=quant_i, var=self.variation))
+            for act_i in new_actions:
+                act_i.name = act_i.name.replace("Nominal", self.name)
+
+            return Unit(unit.dataset, new_selections, new_actions, self)
 
 class ChangeDataset(Variation):
     """
@@ -50,7 +85,6 @@ class ChangeDataset(Variation):
             for friend in ntuple.friends:
                 change_folder(friend)
         return Unit(new_dataset, unit.selections, unit.actions, self)
-
 
 class ReplaceCut(Variation):
     def __init__(self,
@@ -244,6 +278,7 @@ class ChangeDatasetReplaceCutAndAddWeight(Variation):
     def __init__(self,
             name, folder_name, replaced_name, cut, weight):
         Variation.__init__(self, name)
+        print(name,folder_name)
         self.change_dataset = ChangeDataset(name, folder_name)
         self.repl_and_add_weight = ReplaceCutAndAddWeight(name, replaced_name,
                                                           cut, weight)
