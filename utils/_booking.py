@@ -30,10 +30,32 @@ class Ntuple:
 
 
 class Dataset:
-    def __init__(self, name, ntuples):
+    def __init__(self, name, ntuples, quantities_per_vars):
         self.name = name
         self.ntuples = ntuples
+    def __str__(self):
+        return 'Dataset-{}'.format(self.name)
 
+    def __repr__(self):
+        return self.__str__()
+
+    def add_to_ntuples(self, *new_ntuples):
+        for new_ntuple in new_ntuples:
+            self.ntuples.append(new_ntuple)
+
+    def __eq__(self, other):
+        return self.name == other.name and \
+            self.ntuples == other.ntuples
+
+    def __hash__(self):
+        return hash((
+            self.name, tuple(self.ntuples)))
+
+class DatasetCrown:
+    def __init__(self, name, ntuples, quantities_per_vars):
+        self.name = name
+        self.ntuples = ntuples
+        self.quantities_per_vars = quantities_per_vars
     def __str__(self):
         return 'Dataset-{}'.format(self.name)
 
@@ -101,7 +123,10 @@ class Selection:
         self.set_weights(weights)
 
     def __str__(self):
-        return 'Selection-{}'.format(self.name)
+        deb_str = 'Selection-{}\n'.format(self.name)
+        deb_str += "Cuts: {} \n".format(self.cuts)
+        deb_str += "Weights: {}\n".format(self.weights)
+        return deb_str
 
     def __eq__(self, other):
         return self.cuts == other.cuts and \

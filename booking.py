@@ -1,4 +1,5 @@
 from .utils import Dataset
+from .utils import DatasetCrown
 from .utils import Selection
 from .utils import Ntuple
 from .utils import Cut
@@ -107,6 +108,106 @@ def dataset_from_artusoutput(
 
     return Dataset(dataset_name, ntuples)
 
+def dataset_from_crownoutput(
+        dataset_name,
+        file_names,
+        folder,
+        files_base_directory,
+        friends_base_directories):
+    """Create a Dataset object from a list containing the names
+    of the ROOT files (e.g. [root_file1, root_file2, (...)]):
+        ntuple1: /file_base_dir/root_file1/folder/ntuple
+            friend1: /friend1_base_dir/root_file1/folder/ntuple
+            friend2: /friend2_base_dir/root_file1/folder/ntuple
+        ntuple2: /file_base_dir/root_file2/folder/ntuple
+            friend1: /friend1_base_dir/root_file2/folder/ntuple
+            friend2: /friend2_base_dir/root_file2/folder/ntuple
+        ntuple3: /file_base_dir/root_file3/folder/ntuple
+            friend1: /friend1_base_dir/root_file3/folder/ntuple
+            friend2: /friend2_base_dir/root_file3/folder/ntuple
+        (...)
+
+    Args:
+        dataset_name (str): Name of the dataset
+        file_names (list): List containing the names of the .root
+            files
+        folder (str): Name of the TDirectoryFile in each .root file
+        files_base_directory (str): Path to the files base directory (directories)
+        friends_base_directories (str, list): List of paths to
+            the friends base directory (directories)
+
+    Returns:
+        dataset (Dataset): Dataset object containing TTrees
+    """
+    def get_quantities_per_variation(path_to_root_file):
+        root_file = TFile(path_to_root_file)
+        if root_file.IsZombie():
+            logger.fatal('File {} does not exist, abort'.format(path_to_root_file))
+            raise FileNotFoundError
+        quantities_per_vars={}
+        quantities_with_variations = root_file.Get("ntuple").GetListOfLeaves() 
+        for qwv in quantities_with_variations:
+            qwv_name = qwv.GetName()
+            if "__" in qwv_name:
+                quantity,var = qwv_name.split("__")
+                if var not in quantities_per_vars.keys():
+                    quantities_per_vars[var] = []
+                quantities_per_vars[var].append(quantity)
+        root_file.Close()
+        return quantities_per_vars
+
+
+    def get_full_tree_name(folder, path_to_root_file, tree_name):
+        root_file = TFile(path_to_root_file)
+        if root_file.IsZombie():
+            logger.fatal('File {} does not exist, abort'.format(path_to_root_file))
+            raise FileNotFoundError
+        root_file.Close()
+        full_tree_name = tree_name
+        return full_tree_name
+
+    def add_tagged_friends(friends):
+        """ Tag friends with the name of the different directories
+        in the artus name scheme, e.g.:
+        /common_path/MELA/ntuple -> tag: MELA
+        /common_path/SVFit/ntuple -> tag: SVFit
+        Since when we compare two ntuples (with full path) only one
+        directory changes in this scheme (see MELA vs SVFit), we
+        create a list called 'tags' with these two strings; then we
+        assign this string to friend.tag, if it's None
+        """
+        for f1, f2 in itertools.combinations(friends, 2):
+            l1 = f1.path.split('/')
+            l2 = f2.path.split('/')
+            tags = list(set(l1).symmetric_difference(set(l2)))
+            if tags:
+                for t in tags:
+                    if t in l1 and f1.tag is None:
+                        f1.tag = t
+                    elif t in l2 and f2.tag is None:
+                        f2.tag = t
+        return friends
+
+    root_files = []
+    for f in file_names:
+        for g in os.listdir(os.path.join(files_base_directory, f)):
+            print(os.path.join(files_base_directory, f, g))
+            root_files.append(os.path.join(files_base_directory, f, g))
+    ntuples = []
+    for root_file, file_name in zip(root_files, file_names):
+        tdf_tree = get_full_tree_name(folder, root_file, 'ntuple')
+        friends = []
+        for friends_base_directory in friends_base_directories:
+            friend_path = os.path.join(friends_base_directory, file_name, "{}.root".format(file_name))
+            tdf_tree_friend = get_full_tree_name(folder, friend_path, 'ntuple')
+            if tdf_tree != tdf_tree_friend:
+                logger.fatal("Extracted wrong TDirectoryFile from friend which is not the same than the base file.")
+                raise Exception
+            friends.append(Ntuple(friend_path, tdf_tree_friend))
+        ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
+    quantities_per_vars = get_quantities_per_variation(root_files[0])
+    return DatasetCrown(dataset_name, ntuples, quantities_per_vars)
+
 
 class Unit:
     """
@@ -150,7 +251,7 @@ class Unit:
         return layout
 
     def __set_dataset(self, dataset):
-        if not isinstance(dataset, Dataset):
+        if not (isinstance(dataset, Dataset) or isinstance(dataset, DatasetCrown)):
             raise TypeError('not a Dataset object.')
         self.dataset = dataset
 
