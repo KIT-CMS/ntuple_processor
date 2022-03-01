@@ -30,32 +30,11 @@ class Ntuple:
 
 
 class Dataset:
-    def __init__(self, name, ntuples, quantities_per_vars):
-        self.name = name
-        self.ntuples = ntuples
-    def __str__(self):
-        return 'Dataset-{}'.format(self.name)
-
-    def __repr__(self):
-        return self.__str__()
-
-    def add_to_ntuples(self, *new_ntuples):
-        for new_ntuple in new_ntuples:
-            self.ntuples.append(new_ntuple)
-
-    def __eq__(self, other):
-        return self.name == other.name and \
-            self.ntuples == other.ntuples
-
-    def __hash__(self):
-        return hash((
-            self.name, tuple(self.ntuples)))
-
-class DatasetCrown:
-    def __init__(self, name, ntuples, quantities_per_vars):
+    def __init__(self, name, ntuples, quantities_per_vars = None):
         self.name = name
         self.ntuples = ntuples
         self.quantities_per_vars = quantities_per_vars
+
     def __str__(self):
         return 'Dataset-{}'.format(self.name)
 
@@ -73,7 +52,7 @@ class DatasetCrown:
     def __hash__(self):
         return hash((
             self.name, tuple(self.ntuples)))
-
+            
 
 class Operation:
     def __init__(

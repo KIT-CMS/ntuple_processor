@@ -1,5 +1,4 @@
 from .utils import Dataset
-from .utils import DatasetCrown
 from .utils import Selection
 from .utils import Ntuple
 from .utils import Cut
@@ -144,7 +143,7 @@ def dataset_from_crownoutput(
         if root_file.IsZombie():
             logger.fatal('File {} does not exist, abort'.format(path_to_root_file))
             raise FileNotFoundError
-        quantities_per_vars={}
+        quantities_per_vars = {}
         quantities_with_variations = root_file.Get("ntuple").GetListOfLeaves() 
         for qwv in quantities_with_variations:
             qwv_name = qwv.GetName()
@@ -191,7 +190,6 @@ def dataset_from_crownoutput(
     root_files = []
     for f in file_names:
         for g in os.listdir(os.path.join(files_base_directory, f)):
-            print(os.path.join(files_base_directory, f, g))
             root_files.append(os.path.join(files_base_directory, f, g))
     ntuples = []
     for root_file, file_name in zip(root_files, file_names):
@@ -206,7 +204,7 @@ def dataset_from_crownoutput(
             friends.append(Ntuple(friend_path, tdf_tree_friend))
         ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
     quantities_per_vars = get_quantities_per_variation(root_files[0])
-    return DatasetCrown(dataset_name, ntuples, quantities_per_vars)
+    return Dataset(dataset_name, ntuples, quantities_per_vars)
 
 
 class Unit:
@@ -251,7 +249,7 @@ class Unit:
         return layout
 
     def __set_dataset(self, dataset):
-        if not (isinstance(dataset, Dataset) or isinstance(dataset, DatasetCrown)):
+        if not isinstance(dataset, Dataset):
             raise TypeError('not a Dataset object.')
         self.dataset = dataset
 
