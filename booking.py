@@ -110,6 +110,7 @@ def dataset_from_artusoutput(
 def dataset_from_crownoutput(
         dataset_name,
         file_names,
+        channel,
         folder,
         files_base_directory,
         friends_base_directories):
@@ -187,23 +188,26 @@ def dataset_from_crownoutput(
                         f2.tag = t
         return friends
 
+    #files_base_directory: ntuple/era
+    #friends_base_directory: friends/friend_type/era
     root_files = []
     for f in file_names:
-        for g in os.listdir(os.path.join(files_base_directory, f)):
-            root_files.append(os.path.join(files_base_directory, f, g))
+        for g in os.listdir(os.path.join(files_base_directory, f, channel)):
+            root_files.append((os.path.join(files_base_directory, f, channel, g),f))
     ntuples = []
-    for root_file, file_name in zip(root_files, file_names):
+    for root_file,file_name in root_files:
         tdf_tree = get_full_tree_name(folder, root_file, 'ntuple')
         friends = []
         for friends_base_directory in friends_base_directories:
-            friend_path = os.path.join(friends_base_directory, file_name, "{}.root".format(file_name))
+            friend_base_name = os.path.basename(root_file)
+            friend_path = os.path.join(friends_base_directory, file_name, channel, friend_base_name)
             tdf_tree_friend = get_full_tree_name(folder, friend_path, 'ntuple')
             if tdf_tree != tdf_tree_friend:
                 logger.fatal("Extracted wrong TDirectoryFile from friend which is not the same than the base file.")
                 raise Exception
             friends.append(Ntuple(friend_path, tdf_tree_friend))
         ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
-    quantities_per_vars = get_quantities_per_variation(root_files[0])
+    quantities_per_vars = get_quantities_per_variation(root_files[0][0])
     return Dataset(dataset_name, ntuples, quantities_per_vars)
 
 
