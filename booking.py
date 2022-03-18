@@ -131,6 +131,7 @@ def dataset_from_crownoutput(
         dataset_name (str): Name of the dataset
         file_names (list): List containing the names of the .root
             files
+        channel (str): Name of the considered channel, needed for directories
         folder (str): Name of the TDirectoryFile in each .root file
         files_base_directory (str): Path to the files base directory (directories)
         friends_base_directories (str, list): List of paths to
@@ -195,7 +196,7 @@ def dataset_from_crownoutput(
         for g in os.listdir(os.path.join(files_base_directory, f, channel)):
             root_files.append((os.path.join(files_base_directory, f, channel, g),f))
     ntuples = []
-    for root_file,file_name in root_files:
+    for root_file, file_name in root_files:
         tdf_tree = get_full_tree_name(folder, root_file, 'ntuple')
         friends = []
         for friends_base_directory in friends_base_directories:
@@ -208,7 +209,7 @@ def dataset_from_crownoutput(
             friends.append(Ntuple(friend_path, tdf_tree_friend))
         ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
     quantities_per_vars = get_quantities_per_variation(root_files[0][0])
-    return Dataset(dataset_name, ntuples, quantities_per_vars)
+    return Dataset(dataset_name, ntuples, quantities_per_vars=quantities_per_vars)
 
 
 class Unit:

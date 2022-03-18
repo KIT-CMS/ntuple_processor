@@ -25,7 +25,7 @@ class ReplaceVariable(Variation):
         Variation.__init__(self, name)
         self.variation = variation
 
-    def create(self, unit):    
+    def create(self, unit):
         new_selections = deepcopy(unit.selections)
         new_actions = deepcopy(unit.actions)
 
@@ -43,7 +43,7 @@ class ReplaceVariable(Variation):
                         if quant in weight.expression:
                             weight.expression = weight.expression.replace(quant, "{quant}__{var}".format(quant=quant, var=self.variation))
                 for act in new_actions:
-                    if quant in act.name:
+                    if quant in act.variable:
                         act.variable = act.variable.replace(act.variable, "{quant}__{var}".format(quant=act.variable, var=self.variation))
             return Unit(unit.dataset, new_selections, new_actions, self)
                 
