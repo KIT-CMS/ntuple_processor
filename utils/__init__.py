@@ -1,6 +1,5 @@
 from ._booking import Ntuple
 from ._booking import Dataset
-from ._booking import DatasetCrown
 from ._booking import Cut
 from ._booking import Weight
 from ._booking import Selection
