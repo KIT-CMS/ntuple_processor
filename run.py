@@ -7,6 +7,7 @@ from .utils import Histogram
 from .utils import RDataFrameCutWeight
 
 from ROOT import gROOT
+
 gROOT.SetBatch(True)
 from ROOT import RDataFrame
 from ROOT import TFile
@@ -15,8 +16,8 @@ from ROOT import EnableImplicitMT
 from ROOT.std import vector
 
 import logging
-logger = logging.getLogger(__name__)
 
+logger = logging.getLogger(__name__)
 
 
 class RunManager:
@@ -40,6 +41,7 @@ class RunManager:
             saved as attribute for the class in otder to not let
             them out of scope
     """
+
     def __init__(self, graphs):
         self.graphs = graphs
         self.tchains = list()
@@ -48,8 +50,9 @@ class RunManager:
     def _run_multiprocess(self, graph):
         start = time()
         ptrs, diags = self.node_to_root(graph)
-        logger.debug('%%%%%%%%%% Ready to produce a subset of {} shapes'.format(
-            len(ptrs)))
+        logger.debug(
+            "%%%%%%%%%% Ready to produce a subset of {} shapes".format(len(ptrs))
+        )
         if logger.getEffectiveLevel() == logging.DEBUG:
             reports = [node.Report() for node in diags]
         results = list()
@@ -60,18 +63,21 @@ class RunManager:
         for diag_node in diags:
             loops = diag_node.GetNRuns()
             if loops != 1:
-                logger.warning('Event loop run {} times'.format(loops))
+                logger.warning("Event loop run {} times".format(loops))
 
         if logger.getEffectiveLevel() == logging.DEBUG:
             for report in reports:
                 report.Print()
 
         end = time()
-        logger.debug('Event loop for graph {:} run in {:.2f} seconds'.format(
-            repr(graph), end - start))
+        logger.debug(
+            "Event loop for graph {:} run in {:.2f} seconds".format(
+                repr(graph), end - start
+            )
+        )
         return results
 
-    def run_locally(self, output, nworkers = 1, nthreads = 1):
+    def run_locally(self, output, nworkers=1, nthreads=1):
         """Save to file the histograms booked.
 
         Args:
@@ -82,57 +88,68 @@ class RunManager:
                 EnableImplicitMT function
         """
         if not isinstance(nthreads, int):
-            raise TypeError('wrong type for nthreads')
+            raise TypeError("wrong type for nthreads")
         if nthreads < 1:
-            raise ValueError('nthreads has to be larger zero')
+            raise ValueError("nthreads has to be larger zero")
         self.nthreads = nthreads
         if not isinstance(nworkers, int):
-            raise TypeError('wrong type for nworkers')
+            raise TypeError("wrong type for nworkers")
         if nworkers < 1:
-            raise ValueError('nworkers has to be larger zero')
-        logger.info('Start computing locally results of {} graphs using {} workers with {} thread(s) each'.format(
-            len(self.graphs), nworkers, nthreads))
+            raise ValueError("nworkers has to be larger zero")
+        logger.info(
+            "Start computing locally results of {} graphs using {} workers with {} thread(s) each".format(
+                len(self.graphs), nworkers, nthreads
+            )
+        )
         start = time()
         pool = Pool(nworkers)
         final_results = list(pool.map(self._run_multiprocess, self.graphs))
         final_results = [j for i in final_results for j in i]
         end = time()
-        logger.info('Finished computations in {} seconds'.format(int(end - start)))
-        logger.info('Write {} results from {} graphs to file {}'.format(
-            len(final_results), len(self.graphs), output))
-        root_file = TFile(output, 'RECREATE')
+        logger.info("Finished computations in {} seconds".format(int(end - start)))
+        logger.info(
+            "Write {} results from {} graphs to file {}".format(
+                len(final_results), len(self.graphs), output
+            )
+        )
+        root_file = TFile(output, "RECREATE")
         for op in final_results:
             op.Write()
         root_file.Close()
 
-    def node_to_root(self, node, final_results = None, rcw = None, primary_nodes = None):
+    def node_to_root(self, node, final_results=None, rcw=None, primary_nodes=None):
         if final_results is None:
             final_results = list()
         if primary_nodes is None:
             primary_nodes = list()
-        if node.kind == 'dataset':
-            logger.debug('%%%%%%%%%% node_to_root, converting to ROOT language the following dataset node\n{}'.format(
-                node))
-            result = self.__rdf_from_dataset(
-                node.unit_block)
+        if node.kind == "dataset":
+            logger.debug(
+                "%%%%%%%%%% node_to_root, converting to ROOT language the following dataset node\n{}".format(
+                    node
+                )
+            )
+            result = self.__rdf_from_dataset(node.unit_block)
             prim_node = result.frame
             if prim_node not in primary_nodes:
                 primary_nodes.append(prim_node)
-        elif node.kind == 'selection':
+        elif node.kind == "selection":
             if len(node.children) > 1:
-                logger.debug('%%%%%%%%%% node_to_root, converting to ROOT language the following crossroad node\n{}'.format(
-                    node))
-            result = self.__cuts_and_weights_from_selection(
-                rcw, node.unit_block)
-        elif node.kind == 'action':
-            logger.debug('%%%%%%%%%% node_to_root, converting to ROOT language the following action node\n{}'.format(
-                node))
+                logger.debug(
+                    "%%%%%%%%%% node_to_root, converting to ROOT language the following crossroad node\n{}".format(
+                        node
+                    )
+                )
+            result = self.__cuts_and_weights_from_selection(rcw, node.unit_block)
+        elif node.kind == "action":
+            logger.debug(
+                "%%%%%%%%%% node_to_root, converting to ROOT language the following action node\n{}".format(
+                    node
+                )
+            )
             if isinstance(node.unit_block, Count):
-                result = self.__sum_from_count(
-                    rcw, node.unit_block)
+                result = self.__sum_from_count(rcw, node.unit_block)
             elif isinstance(node.unit_block, Histogram):
-                result = self.__histo1d_from_histo(
-                    rcw, node.unit_block)
+                result = self.__histo1d_from_histo(rcw, node.unit_block)
         if node.children:
             for child in node.children:
                 self.node_to_root(child, final_results, result, primary_nodes)
@@ -141,23 +158,21 @@ class RunManager:
         return final_results, primary_nodes
 
     def __rdf_from_dataset(self, dataset):
-        t_names = [ntuple.directory for ntuple in \
-            dataset.ntuples]
+        t_names = [ntuple.directory for ntuple in dataset.ntuples]
         if len(set(t_names)) == 1:
             tree_name = t_names.pop()
         else:
-            raise NameError(
-                'Impossible to create RDataFrame with different tree names')
+            raise NameError("Impossible to create RDataFrame with different tree names")
         chain = TChain()
         ftag_fchain = {}
         for ntuple in dataset.ntuples:
-            chain.Add('{}/{}'.format(
-                ntuple.path, ntuple.directory))
+            chain.Add("{}/{}".format(ntuple.path, ntuple.directory))
             for friend in ntuple.friends:
                 if friend.tag not in ftag_fchain.keys():
                     ftag_fchain[friend.tag] = TChain()
-                ftag_fchain[friend.tag].Add('{}/{}'.format(
-                    friend.path, friend.directory))
+                ftag_fchain[friend.tag].Add(
+                    "{}/{}".format(friend.path, friend.directory)
+                )
         for tag, ch in ftag_fchain.items():
             if tag is None:
                 chain.AddFriend(ch)
@@ -194,18 +209,22 @@ class RunManager:
 
         # Create macro weight string from sub-weights applied
         # (saved earlier as rdf columns)
-        weight_expression = '*'.join(['(' + weight.expression + ')' for weight in rcw.weights])
+        weight_expression = "*".join(
+            ["(" + weight.expression + ")" for weight in rcw.weights]
+        )
 
         # Create macro cut string from sub-cuts applied
         # (saved earlier as rdf columns)
         cut_name = name.replace("#", "_")
         cut_name = cut_name.replace("-", "_")
         cut_name = "cut_" + cut_name
-        cut_expression = ' && '.join(['(' + cut.expression + ')' for cut in rcw.cuts])
+        cut_expression = " && ".join(["(" + cut.expression + ")" for cut in rcw.cuts])
         if cut_expression:
             if logger.getEffectiveLevel() == logging.DEBUG:
                 for cut in rcw.cuts:
-                    rcw.frame = rcw.frame.Filter(cut.expression, cut_name + ":" + cut.name)
+                    rcw.frame = rcw.frame.Filter(
+                        cut.expression, cut_name + ":" + cut.name
+                    )
             else:
                 rcw.frame = rcw.frame.Filter(cut_expression)
             # Check for assignments in cut expression
@@ -213,7 +232,7 @@ class RunManager:
                 logger.warning("Found assignment in cut string. Is this intended?")
 
         # Create std::vector with the histogram edges
-        l_edges = vector['double']()
+        l_edges = vector["double"]()
         for edge in edges:
             l_edges.push_back(edge)
 
@@ -224,32 +243,28 @@ class RunManager:
             if re.search("(&&|\|\||\+|-|<=|>=|<|>|==|!=)", var):
                 varname = name.split("#")[-1]
                 rcw.frame = rcw.frame.Define(varname, var)
-                logger.debug('%%%%%%%%%% Attaching histogram called {}'.format(name))
-                histo = rcw.frame.Histo1D((
-                        name, name, nbins, l_edges.data()),
-                        varname)
+                logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
+                histo = rcw.frame.Histo1D((name, name, nbins, l_edges.data()), varname)
             else:
-                logger.debug('%%%%%%%%%% Attaching histogram called {}'.format(name))
-                histo = rcw.frame.Histo1D((
-                        name, name, nbins, l_edges.data()),
-                        var)
+                logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
+                histo = rcw.frame.Histo1D((name, name, nbins, l_edges.data()), var)
         else:
-            weight_name = name.replace('#', '_')
-            weight_name = weight_name.replace('-', '_')
+            weight_name = name.replace("#", "_")
+            weight_name = weight_name.replace("-", "_")
             rcw.frame = rcw.frame.Define(weight_name, weight_expression)
-            logger.debug('%%%%%%%%%% Attaching histogram called {}'.format(name))
+            logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
             # If the histogram variable is built from different columns,
             # define a column with the expression first and fill this
             # new column in the histogram.
             if re.search("(&&|\|\||\+|-|<=|>=|<|>|==|!=)", var):
                 varname = name.split("#")[-1]
                 rcw.frame = rcw.frame.Define(varname, var)
-                histo = rcw.frame.Histo1D((
-                        name, name, nbins, l_edges.data()),
-                        varname, weight_name)
+                histo = rcw.frame.Histo1D(
+                    (name, name, nbins, l_edges.data()), varname, weight_name
+                )
             else:
-                histo = rcw.frame.Histo1D((
-                    name, name, nbins, l_edges.data()),
-                    var, weight_name)
+                histo = rcw.frame.Histo1D(
+                    (name, name, nbins, l_edges.data()), var, weight_name
+                )
 
         return histo

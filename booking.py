@@ -9,6 +9,7 @@ from .utils import Histogram
 from .utils import Variation
 
 from ROOT import gROOT
+
 gROOT.SetBatch(True)
 from ROOT import TFile
 
@@ -18,16 +19,13 @@ import json
 import itertools
 
 import logging
+
 logger = logging.getLogger(__name__)
 
 
-
 def dataset_from_artusoutput(
-        dataset_name,
-        file_names,
-        folder,
-        files_base_directory,
-        friends_base_directories):
+    dataset_name, file_names, folder, files_base_directory, friends_base_directories
+):
     """Create a Dataset object from a list containing the names
     of the ROOT files (e.g. [root_file1, root_file2, (...)]):
         ntuple1: /file_base_dir/root_file1/folder/ntuple
@@ -53,20 +51,23 @@ def dataset_from_artusoutput(
     Returns:
         dataset (Dataset): Dataset object containing TTrees
     """
+
     def get_full_tree_name(folder, path_to_root_file, tree_name):
         root_file = TFile(path_to_root_file)
         if root_file.IsZombie():
-            logger.fatal('File {} does not exist, abort'.format(path_to_root_file))
+            logger.fatal("File {} does not exist, abort".format(path_to_root_file))
             raise FileNotFoundError
         if folder not in root_file.GetListOfKeys():
-            logger.fatal('Folder {} does not exist in {}\n'.format(folder, path_to_root_file))
+            logger.fatal(
+                "Folder {} does not exist in {}\n".format(folder, path_to_root_file)
+            )
             raise NameError
         root_file.Close()
-        full_tree_name = '/'.join([folder, tree_name])
+        full_tree_name = "/".join([folder, tree_name])
         return full_tree_name
 
     def add_tagged_friends(friends):
-        """ Tag friends with the name of the different directories
+        """Tag friends with the name of the different directories
         in the artus name scheme, e.g.:
         /common_path/MELA/ntuple -> tag: MELA
         /common_path/SVFit/ntuple -> tag: SVFit
@@ -76,8 +77,8 @@ def dataset_from_artusoutput(
         assign this string to friend.tag, if it's None
         """
         for f1, f2 in itertools.combinations(friends, 2):
-            l1 = f1.path.split('/')
-            l2 = f2.path.split('/')
+            l1 = f1.path.split("/")
+            l2 = f2.path.split("/")
             tags = list(set(l1).symmetric_difference(set(l2)))
             if tags:
                 for t in tags:
@@ -88,32 +89,41 @@ def dataset_from_artusoutput(
         return friends
 
     # E.g.: file_base_dir/file_name/file_name.root
-    root_files = [os.path.join(files_base_directory, f, "{}.root".format(f)) for f in file_names]
+    root_files = [
+        os.path.join(files_base_directory, f, "{}.root".format(f)) for f in file_names
+    ]
 
     # E.g.: file_base_dir/file_name1/file_name1.root/folder/ntuple
     #       file_base_dir/file_name1/file_name2.root/folder/ntuple
     ntuples = []
     for root_file, file_name in zip(root_files, file_names):
-        tdf_tree = get_full_tree_name(folder, root_file, 'ntuple')
+        tdf_tree = get_full_tree_name(folder, root_file, "ntuple")
         friends = []
         for friends_base_directory in friends_base_directories:
-            friend_path = os.path.join(friends_base_directory, file_name, "{}.root".format(file_name))
-            tdf_tree_friend = get_full_tree_name(folder, friend_path, 'ntuple')
+            friend_path = os.path.join(
+                friends_base_directory, file_name, "{}.root".format(file_name)
+            )
+            tdf_tree_friend = get_full_tree_name(folder, friend_path, "ntuple")
             if tdf_tree != tdf_tree_friend:
-                logger.fatal("Extracted wrong TDirectoryFile from friend which is not the same than the base file.")
+                logger.fatal(
+                    "Extracted wrong TDirectoryFile from friend which is not the same than the base file."
+                )
                 raise Exception
             friends.append(Ntuple(friend_path, tdf_tree_friend))
         ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
 
     return Dataset(dataset_name, ntuples)
 
+
 def dataset_from_crownoutput(
-        dataset_name,
-        file_names,
-        channel,
-        folder,
-        files_base_directory,
-        friends_base_directories):
+    dataset_name,
+    file_names,
+    era,
+    channel,
+    folder,
+    files_base_directory,
+    friends_base_directories=None,
+):
     """Create a Dataset object from a list containing the names
     of the ROOT files (e.g. [root_file1, root_file2, (...)]):
         ntuple1: /file_base_dir/root_file1/folder/ntuple
@@ -140,35 +150,35 @@ def dataset_from_crownoutput(
     Returns:
         dataset (Dataset): Dataset object containing TTrees
     """
+
     def get_quantities_per_variation(path_to_root_file):
         root_file = TFile(path_to_root_file)
         if root_file.IsZombie():
-            logger.fatal('File {} does not exist, abort'.format(path_to_root_file))
+            logger.fatal("File {} does not exist, abort".format(path_to_root_file))
             raise FileNotFoundError
         quantities_per_vars = {}
-        quantities_with_variations = root_file.Get("ntuple").GetListOfLeaves() 
+        quantities_with_variations = root_file.Get("ntuple").GetListOfLeaves()
         for qwv in quantities_with_variations:
             qwv_name = qwv.GetName()
             if "__" in qwv_name:
-                quantity,var = qwv_name.split("__")
+                quantity, var = qwv_name.split("__")
                 if var not in quantities_per_vars.keys():
                     quantities_per_vars[var] = []
                 quantities_per_vars[var].append(quantity)
         root_file.Close()
         return quantities_per_vars
 
-
     def get_full_tree_name(folder, path_to_root_file, tree_name):
         root_file = TFile(path_to_root_file)
         if root_file.IsZombie():
-            logger.fatal('File {} does not exist, abort'.format(path_to_root_file))
+            logger.fatal("File {} does not exist, abort".format(path_to_root_file))
             raise FileNotFoundError
         root_file.Close()
         full_tree_name = tree_name
         return full_tree_name
 
     def add_tagged_friends(friends):
-        """ Tag friends with the name of the different directories
+        """Tag friends with the name of the different directories
         in the artus name scheme, e.g.:
         /common_path/MELA/ntuple -> tag: MELA
         /common_path/SVFit/ntuple -> tag: SVFit
@@ -178,8 +188,8 @@ def dataset_from_crownoutput(
         assign this string to friend.tag, if it's None
         """
         for f1, f2 in itertools.combinations(friends, 2):
-            l1 = f1.path.split('/')
-            l2 = f2.path.split('/')
+            l1 = f1.path.split("/")
+            l2 = f2.path.split("/")
             tags = list(set(l1).symmetric_difference(set(l2)))
             if tags:
                 for t in tags:
@@ -189,22 +199,28 @@ def dataset_from_crownoutput(
                         f2.tag = t
         return friends
 
-    #files_base_directory: ntuple/era
-    #friends_base_directory: friends/friend_type/era
+    # files_base_directory: ntuple/era
+    # friends_base_directory: friends/friend_type/era
     root_files = []
     for f in file_names:
-        for g in os.listdir(os.path.join(files_base_directory, f, channel)):
-            root_files.append((os.path.join(files_base_directory, f, channel, g),f))
+        for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
+            root_files.append(
+                (os.path.join(files_base_directory, era, f, channel, g), f)
+            )
     ntuples = []
     for root_file, file_name in root_files:
-        tdf_tree = get_full_tree_name(folder, root_file, 'ntuple')
+        tdf_tree = get_full_tree_name(folder, root_file, "ntuple")
         friends = []
         for friends_base_directory in friends_base_directories:
             friend_base_name = os.path.basename(root_file)
-            friend_path = os.path.join(friends_base_directory, file_name, channel, friend_base_name)
-            tdf_tree_friend = get_full_tree_name(folder, friend_path, 'ntuple')
+            friend_path = os.path.join(
+                friends_base_directory, era, file_name, channel, friend_base_name
+            )
+            tdf_tree_friend = get_full_tree_name(folder, friend_path, "ntuple")
             if tdf_tree != tdf_tree_friend:
-                logger.fatal("Extracted wrong TDirectoryFile from friend which is not the same than the base file.")
+                logger.fatal(
+                    "Extracted wrong TDirectoryFile from friend which is not the same than the base file."
+                )
                 raise Exception
             friends.append(Ntuple(friend_path, tdf_tree_friend))
         ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
@@ -238,67 +254,73 @@ class Unit:
             that this selection is the result of a variation
             applied on other selections
     """
-    def __init__(
-            self,
-            dataset, selections, actions,
-            variation = None):
+
+    def __init__(self, dataset, selections, actions, variation=None):
         self.__set_dataset(dataset)
         self.__set_selections(selections)
         self.__set_actions(actions, variation)
 
     def __str__(self):
-        layout = '\n'.join([
-            'Dataset: {}'.format(self.dataset.name),
-            'Selections: {}'.format(self.selections),
-            'Actions: {}'.format(self.actions)])
+        layout = "\n".join(
+            [
+                "Dataset: {}".format(self.dataset.name),
+                "Selections: {}".format(self.selections),
+                "Actions: {}".format(self.actions),
+            ]
+        )
         return layout
 
     def __set_dataset(self, dataset):
         if not isinstance(dataset, Dataset):
-            raise TypeError('not a Dataset object.')
+            raise TypeError("not a Dataset object.")
         self.dataset = dataset
 
     def __set_selections(self, selections):
         if not isinstance(selections, list):
-            raise TypeError('not a list object.')
+            raise TypeError("not a list object.")
         for selection in selections:
             if not isinstance(selection, Selection):
-                raise TypeError('not a Selection object.')
+                raise TypeError("not a Selection object.")
         self.selections = selections
 
     def __set_actions(self, actions, variation):
         if not isinstance(actions, list):
-            raise TypeError('not a list object.')
+            raise TypeError("not a list object.")
         for action in actions:
             if not isinstance(action, Action):
-                raise TypeError('not an Action object.')
-        self.actions = [self.__set_new_action(action, variation) \
-                for action in actions]
+                raise TypeError("not an Action object.")
+        self.actions = [self.__set_new_action(action, variation) for action in actions]
 
     def __set_new_action(self, action, variation):
         if variation is None:
-            name = '#'.join([self.dataset.name,
-                '-'.join([selection.name for selection in self.selections]),
-                'Nominal', action.name])
+            name = "#".join(
+                [
+                    self.dataset.name,
+                    "-".join([selection.name for selection in self.selections]),
+                    "Nominal",
+                    action.name,
+                ]
+            )
         else:
             if not isinstance(variation, Variation):
-                raise TypeError('not a Variation object.')
+                raise TypeError("not a Variation object.")
             self.variation = variation
-            name = action.name.replace('Nominal', self.variation.name)
+            name = action.name.replace("Nominal", self.variation.name)
         if isinstance(action, Histogram):
             return Histogram(name, action.variable, action.edges)
         elif isinstance(action, Count):
             return Count(name, action.variable)
 
     def __eq__(self, other):
-        return self.dataset == other.dataset and \
-            self.selections == other.selections and \
-            self.actions == other.actions
+        return (
+            self.dataset == other.dataset
+            and self.selections == other.selections
+            and self.actions == other.actions
+        )
 
     def __hash__(self):
-        return hash((
-            self.dataset, tuple(self.selections),
-            tuple(self.actions)))
+        return hash((self.dataset, tuple(self.selections), tuple(self.actions)))
+
 
 class UnitManager:
     """
@@ -314,21 +336,25 @@ class UnitManager:
 
     booked_units = []
 
-    def book(self, units, variations = None, enable_check = True):
+    def book(self, units, variations=None, enable_check=True):
         for unit in units:
             if unit not in self.booked_units:
                 self.booked_units.append(unit)
         if variations:
             for variation in variations:
-                logger.debug('Applying variation {}'.format(variation))
+                logger.debug("Applying variation {}".format(variation))
                 for unit in units:
                     self.apply_variation(unit, variation)
         if enable_check:
-            for action1, action2 in itertools.combinations([j for i in [
-                unit.actions for unit in self.booked_units] for j in i], 2):
+            for action1, action2 in itertools.combinations(
+                [j for i in [unit.actions for unit in self.booked_units] for j in i], 2
+            ):
                 if action1.name == action2.name:
-                    logger.fatal('Caught two actions with same name ({}, {})'.format(
-                        action1.name, action2.name))
+                    logger.fatal(
+                        "Caught two actions with same name ({}, {})".format(
+                            action1.name, action2.name
+                        )
+                    )
                     raise NameError
 
     def apply_variation(self, unit, variation):
