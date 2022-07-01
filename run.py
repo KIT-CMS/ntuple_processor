@@ -240,7 +240,7 @@ class RunManager:
             # If the histogram variable is built from different columns,
             # define a column with the expression first and fill this
             # new column in the histogram.
-            if re.search("(&&|\|\||\+|-|<=|>=|<|>|==|!=)", var):
+            if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
                 varname = name.split("#")[-1]
                 rcw.frame = rcw.frame.Define(varname, var)
                 logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
@@ -256,7 +256,7 @@ class RunManager:
             # If the histogram variable is built from different columns,
             # define a column with the expression first and fill this
             # new column in the histogram.
-            if re.search("(&&|\|\||\+|-|<=|>=|<|>|==|!=)", var):
+            if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
                 varname = name.split("#")[-1]
                 rcw.frame = rcw.frame.Define(varname, var)
                 histo = rcw.frame.Histo1D(
