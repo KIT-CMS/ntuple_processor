@@ -177,6 +177,13 @@ def dataset_from_crownoutput(
         full_tree_name = tree_name
         return full_tree_name
 
+    def is_empty_file(path_to_root_file, tree_name):
+        root_file = TFile(path_to_root_file)
+        if tree_name not in [x.GetTitle() for x in root_file.GetListOfKeys()]:
+            return True
+        root_file.Close()
+        return False
+
     def add_tagged_friends(friends):
         """Tag friends with the name of the different directories
         in the artus name scheme, e.g.:
@@ -222,8 +229,10 @@ def dataset_from_crownoutput(
                     "Extracted wrong TDirectoryFile from friend which is not the same than the base file."
                 )
                 raise Exception
-            friends.append(Ntuple(friend_path, tdf_tree_friend))
-        ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
+            if not is_empty_file(friend_path, tdf_tree):
+                friends.append(Ntuple(friend_path, tdf_tree_friend))
+        if not is_empty_file(root_file, tdf_tree):
+            ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
     quantities_per_vars = get_quantities_per_variation(root_files[0][0])
     return Dataset(dataset_name, ntuples, quantities_per_vars=quantities_per_vars)
 
