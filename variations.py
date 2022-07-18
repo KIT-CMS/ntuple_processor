@@ -38,29 +38,33 @@ class ReplaceVariable(Variation):
             for quant in list_of_quants:
                 for sel_obj in new_selections:
                     for cut in sel_obj.cuts:
-                        if quant in cut.expression:
+                        if quant == cut.expression:
                             cut.expression = cut.expression.replace(
                                 quant,
                                 "{quant}__{var}".format(
                                     quant=quant, var=self.variation
                                 ),
                             )
+                            logger.debug(f"Replaced expression {quant} with {cut.expression} ( quant: {quant}, var: {self.variation}")
                     for weight in sel_obj.weights:
-                        if quant in weight.expression:
+                        if quant == weight.expression:
+                            logger.debug(f"Initial weight: {weight.expression}")
                             weight.expression = weight.expression.replace(
                                 quant,
                                 "{quant}__{var}".format(
                                     quant=quant, var=self.variation
                                 ),
                             )
+                            logger.debug(f"Replaced weight {quant} with {weight.expression} ( quant: {quant}, var: {self.variation}")
                 for act in new_actions:
-                    if quant in act.variable:
+                    if quant == act.variable:
                         act.variable = act.variable.replace(
                             act.variable,
                             "{quant}__{var}".format(
                                 quant=act.variable, var=self.variation
                             ),
                         )
+                        logger.debug(f"Replaced act {quant} with {act.variable}")
             return Unit(unit.dataset, new_selections, new_actions, self)
 
 
