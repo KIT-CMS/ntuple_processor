@@ -219,7 +219,7 @@ def dataset_from_crownoutput(
         if len(validation_dict["varset"]) == 0:
             validation_dict["varset"] = quantities
         else:
-            difference = (validation_dict["varset"] - quantities) | (quantities - validation_dict["varset"])
+            difference = validation_dict["varset"].symmetric_difference(quantities)
             if len(difference) != 0:
                 # error is found
                 errordata["file"] = root_file_path
@@ -227,7 +227,7 @@ def dataset_from_crownoutput(
         if len(validation_dict["friends_varset"]) == 0:
             validation_dict["friends_varset"] = friend_quantitites
         else:
-            difference = (validation_dict["friends_varset"] - friend_quantitites) | (friend_quantitites - validation_dict["friends_varset"])
+            difference = validation_dict["friends_varset"].symmetric_difference(friend_quantitites)
             if len(difference) != 0:
                 # error is found
                 errordata["friends"] = friends
