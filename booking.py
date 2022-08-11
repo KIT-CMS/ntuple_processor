@@ -123,6 +123,7 @@ def dataset_from_crownoutput(
     folder,
     files_base_directory,
     friends_base_directories=None,
+    validate_samples=False
 ):
     """Create a Dataset object from a list containing the names
     of the ROOT files (e.g. [root_file1, root_file2, (...)]):
@@ -168,7 +169,7 @@ def dataset_from_crownoutput(
         root_file.Close()
         return quantities_per_vars
 
-    def get_full_tree_name(folder, path_to_root_file, tree_name):
+    def get_full_tree_name(path_to_root_file, tree_name):
         root_file = TFile(path_to_root_file)
         if root_file.IsZombie():
             logger.fatal("File {} does not exist, abort".format(path_to_root_file))
@@ -206,6 +207,40 @@ def dataset_from_crownoutput(
                         f2.tag = t
         return friends
 
+    def check_validity(root_file_path, validation_dict, friends):
+        root_file = TFile(root_file_path)
+        quantities = set([x.GetName() for x in root_file.Get("ntuple").GetListOfLeaves()])
+        friend_quantitites = set()
+        for f in friends:
+            friend = TFile(f)
+            friend_quantitites.update(set([x.GetName() for x in friend.Get("ntuple").GetListOfLeaves()]))
+        # first we check the main ntuple, then the friends
+        errordata = {}
+        if len(validation_dict["varset"]) == 0:
+            validation_dict["varset"] = quantities
+        else:
+            intersection = quantities & validation_dict["varset"]
+            if len(intersection) != len(validation_dict["varset"]):
+                # error is found
+                # logger.warning("Length Intersection: {}".format(len(intersection)))
+                # logger.warning("Length Varset: {}".format(len(validation_dict["varset"])))
+                # logger.warning("Varset: {}".format(validation_dict["varset"]))
+                # logger.warning("Quantities: {}".format(quantities))
+                # logger.warning("Differences: {}".format(validation_dict["varset"] - quantities))
+                errordata["file"] = root_file_path
+                errordata["difference"] = validation_dict["varset"] - quantities
+        if len(validation_dict["friends_varset"]) == 0:
+            validation_dict["friends_varset"] = friend_quantitites
+        else:
+            intersection = friend_quantitites & validation_dict["friends_varset"]
+            if len(intersection) != len(validation_dict["friends_varset"]):
+                # error is found
+                errordata["friends"] = friends
+                errordata["friends_difference"] = friend_quantitites - validation_dict["friends_varset"]
+        if errordata != {}:
+            validation_dict["errors"].append(errordata)
+
+
     # files_base_directory: ntuple/era
     # friends_base_directory: friends/friend_type/era
     root_files = []
@@ -215,15 +250,25 @@ def dataset_from_crownoutput(
                 (os.path.join(files_base_directory, era, f, channel, g), f)
             )
     ntuples = []
+    if validate_samples:
+        logger.info("Running ntuple validation for {} - {} - {}".format(era, channel, dataset_name))
+    validation_dict = {
+        "varset": set(),
+        "friends_varset": set(),
+        "errors": []
+    }
+    valid = True
     for root_file, file_name in root_files:
-        tdf_tree = get_full_tree_name(folder, root_file, "ntuple")
+        tdf_tree = get_full_tree_name(root_file, "ntuple")
         friends = []
+        friend_paths = []
         for friends_base_directory in friends_base_directories:
             friend_base_name = os.path.basename(root_file)
             friend_path = os.path.join(
                 friends_base_directory, era, file_name, channel, friend_base_name
             )
-            tdf_tree_friend = get_full_tree_name(folder, friend_path, "ntuple")
+            friend_paths.append(friend_path)
+            tdf_tree_friend = get_full_tree_name(friend_path, "ntuple")
             if tdf_tree != tdf_tree_friend:
                 logger.fatal(
                     "Extracted wrong TDirectoryFile from friend which is not the same than the base file."
@@ -233,6 +278,22 @@ def dataset_from_crownoutput(
                 friends.append(Ntuple(friend_path, tdf_tree_friend))
         if not is_empty_file(root_file, tdf_tree):
             ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
+            if validate_samples:
+                check_validity(root_file, validation_dict, friend_paths)
+    if len(validation_dict["errors"]) != 0:
+        logger.fatal("Validation for {} - {} - {} failed, differences were found".format(era, channel, dataset_name))
+        for i, error in enumerate(validation_dict["errors"]):
+            if "difference" in error:
+                if len(error["difference"]) != 0:
+                    logger.fatal("File {} has the following differences:".format(error["file"]))
+                    logger.fatal("\t{}".format(error["difference"]))
+            if "friends_difference" in error:
+                if len(error["friends_difference"]) != 0:
+                    logger.fatal("Friends {} have the following differences:".format(error["friends"]))
+                    logger.fatal("\t{}".format(error["friends_difference"]))
+    else:
+        logger.info("Validation for {} - {} - {} passed".format(era, channel, dataset_name))
+
     quantities_per_vars = get_quantities_per_variation(root_files[0][0])
     return Dataset(dataset_name, ntuples, quantities_per_vars=quantities_per_vars)
 
