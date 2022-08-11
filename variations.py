@@ -45,7 +45,9 @@ class ReplaceVariable(Variation):
                                     quant=quant, var=self.variation
                                 ),
                             )
-                            logger.debug(f"Replaced expression {quant} with {cut.expression} ( quant: {quant}, var: {self.variation}")
+                            logger.debug(
+                                f"Replaced expression {quant} with {cut.expression} ( quant: {quant}, var: {self.variation}"
+                            )
                     for weight in sel_obj.weights:
                         if quant == weight.expression:
                             logger.debug(f"Initial weight: {weight.expression}")
@@ -55,7 +57,9 @@ class ReplaceVariable(Variation):
                                     quant=quant, var=self.variation
                                 ),
                             )
-                            logger.debug(f"Replaced weight {quant} with {weight.expression} ( quant: {quant}, var: {self.variation}")
+                            logger.debug(
+                                f"Replaced weight {quant} with {weight.expression} ( quant: {quant}, var: {self.variation}"
+                            )
                 for act in new_actions:
                     if quant == act.variable:
                         act.variable = act.variable.replace(
@@ -371,4 +375,28 @@ class ChangeDatasetReplaceMultipleCutsAndAddWeight(Variation):
 
     def create(self, unit):
         unit = self.change_dataset.create(unit)
+        return self.repl_and_add_weight.create(unit)
+
+
+class ReplaceVariableReplaceCut(Variation):
+    def __init__(self, name, variation, replaced_name, cut):
+        Variation.__init__(self, name)
+        self.replace_variable = ReplaceVariable(name, variation)
+        self.replace_cut = ReplaceCut(name, replaced_name, cut)
+
+    def create(self, unit):
+        unit = self.replace_variable.create(unit)
+        return self.replace_cut.create(unit)
+
+
+class ReplaceVariableReplaceCutAndAddWeight(Variation):
+    def __init__(self, name, variation, replaced_name, cut, weight):
+        Variation.__init__(self, name)
+        self.replace_variable = ReplaceVariable(name, variation)
+        self.repl_and_add_weight = ReplaceCutAndAddWeight(
+            name, replaced_name, cut, weight
+        )
+
+    def create(self, unit):
+        unit = self.replace_variable.create(unit)
         return self.repl_and_add_weight.create(unit)
