@@ -219,24 +219,19 @@ def dataset_from_crownoutput(
         if len(validation_dict["varset"]) == 0:
             validation_dict["varset"] = quantities
         else:
-            intersection = quantities & validation_dict["varset"]
-            if len(intersection) != len(validation_dict["varset"]):
+            difference = (validation_dict["varset"] - quantities) | (quantities - validation_dict["varset"])
+            if len(difference) != 0:
                 # error is found
-                # logger.warning("Length Intersection: {}".format(len(intersection)))
-                # logger.warning("Length Varset: {}".format(len(validation_dict["varset"])))
-                # logger.warning("Varset: {}".format(validation_dict["varset"]))
-                # logger.warning("Quantities: {}".format(quantities))
-                # logger.warning("Differences: {}".format(validation_dict["varset"] - quantities))
                 errordata["file"] = root_file_path
-                errordata["difference"] = validation_dict["varset"] - quantities
+                errordata["difference"] = difference
         if len(validation_dict["friends_varset"]) == 0:
             validation_dict["friends_varset"] = friend_quantitites
         else:
-            intersection = friend_quantitites & validation_dict["friends_varset"]
-            if len(intersection) != len(validation_dict["friends_varset"]):
+            difference = (validation_dict["friends_varset"] - friend_quantitites) | (friend_quantitites - validation_dict["friends_varset"])
+            if len(difference) != 0:
                 # error is found
                 errordata["friends"] = friends
-                errordata["friends_difference"] = friend_quantitites - validation_dict["friends_varset"]
+                errordata["friends_difference"] = difference
         if errordata != {}:
             validation_dict["errors"].append(errordata)
 
