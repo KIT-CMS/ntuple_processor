@@ -13,7 +13,23 @@ logger = logging.getLogger(__name__)
 
 def get_quantities_from_expression(expression):
     # first change all operators to &&
-    for operator in ["<", ">", "=", "!=", "+", "-", "*", "/", "||", ">=", "<=", "&&", "(", ")", "!"]:
+    for operator in [
+        "<",
+        ">",
+        "=",
+        "!=",
+        "+",
+        "-",
+        "*",
+        "/",
+        "||",
+        ">=",
+        "<=",
+        "&&",
+        "(",
+        ")",
+        "!",
+    ]:
         expression = expression.replace(operator, "&&")
     # then remove all brackets and spaces
     expression = expression.replace(" ", "")
@@ -51,7 +67,8 @@ class ReplaceVariable(Variation):
         new_actions = deepcopy(unit.actions)
         replaced = False
         if self.variation not in unit.dataset.quantities_per_vars:
-            logger.fatal("Variation {} not found in ntuple".format(self.variation))
+            logger.fatal(f"Variation {self.variation} not found in ntuple for dataset {unit.dataset.name}")
+            logger.fatal(f"Available variations are: {unit.dataset.quantities_per_vars.keys()}")
             raise NameError
         else:
             list_of_quantities = set(unit.dataset.quantities_per_vars[self.variation])
@@ -101,7 +118,10 @@ class ReplaceVariable(Variation):
                     replaced = True
                     logger.debug(f"Replaced act {quantity} with {act.variable}")
         if not replaced:
-            logger.warning(f"For variation {self.variation} on unit {unit} no quantities were replaced, the shift has no effect..")
+            logger.warning(
+                f"[Unused Variation] For variation {self.variation} on unit {unit.dataset.name} no quantities were replaced, the shift has no effect.."
+            )
+            logger.warning(f"Quantities affected by {self.variation}: {list_of_quantities} ")
         return Unit(unit.dataset, new_selections, new_actions, self)
 
 
