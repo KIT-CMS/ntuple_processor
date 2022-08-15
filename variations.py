@@ -67,8 +67,12 @@ class ReplaceVariable(Variation):
         new_actions = deepcopy(unit.actions)
         replaced = False
         if self.variation not in unit.dataset.quantities_per_vars:
-            logger.fatal(f"Variation {self.variation} not found in ntuple for dataset {unit.dataset.name}")
-            logger.fatal(f"Available variations are: {unit.dataset.quantities_per_vars.keys()}")
+            logger.fatal(
+                f"Variation {self.variation} not found in ntuple for dataset {unit.dataset.name}"
+            )
+            logger.fatal(
+                f"Available variations are: {unit.dataset.quantities_per_vars.keys()}"
+            )
             raise NameError
         else:
             list_of_quantities = set(unit.dataset.quantities_per_vars[self.variation])
@@ -121,7 +125,9 @@ class ReplaceVariable(Variation):
             logger.warning(
                 f"[Unused Variation] For variation {self.variation} on unit {unit.dataset.name} no quantities were replaced, the shift has no effect.."
             )
-            logger.warning(f"Quantities affected by {self.variation}: {list_of_quantities} ")
+            logger.warning(
+                f"Quantities affected by {self.variation}: {list_of_quantities} "
+            )
         return Unit(unit.dataset, new_selections, new_actions, self)
 
 
