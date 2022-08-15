@@ -10,6 +10,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def get_quantities_from_expression(expression):
+    # first change all operators to &&
+    for operator in ["<", ">", "=", "!=", "+", "-", "*", "/", "||"]:
+        expression = expression.replace(operator, "&&")
+    # then remove all brackets and spaces
+    expression = expression.replace("(", " ").replace(")", " ").replace(" ", "")
+    # then split by && and remove empty strings
+    quantities = [ q for q in expression.split("&&") if not q.replace('.','',1).isdigit() and q != ""]
+    return quantities
 
 class ReplaceVariable(Variation):
     """
@@ -27,6 +36,8 @@ class ReplaceVariable(Variation):
         Variation.__init__(self, name)
         self.variation = variation
 
+
+
     def create(self, unit):
         new_selections = deepcopy(unit.selections)
         new_actions = deepcopy(unit.actions)
@@ -38,7 +49,7 @@ class ReplaceVariable(Variation):
             for quant in list_of_quants:
                 for sel_obj in new_selections:
                     for cut in sel_obj.cuts:
-                        if quant == cut.expression:
+                        if quant in get_quantities_from_expression(cut.expression):
                             cut.expression = cut.expression.replace(
                                 quant,
                                 "{quant}__{var}".format(
@@ -49,7 +60,7 @@ class ReplaceVariable(Variation):
                                 f"Replaced expression {quant} with {cut.expression} ( quant: {quant}, var: {self.variation}"
                             )
                     for weight in sel_obj.weights:
-                        if quant == weight.expression:
+                        if quant in get_quantities_from_expression(weight.expression):
                             logger.debug(f"Initial weight: {weight.expression}")
                             weight.expression = weight.expression.replace(
                                 quant,
@@ -61,7 +72,7 @@ class ReplaceVariable(Variation):
                                 f"Replaced weight {quant} with {weight.expression} ( quant: {quant}, var: {self.variation}"
                             )
                 for act in new_actions:
-                    if quant == act.variable:
+                    if quant in get_quantities_from_expression(act.variable):
                         act.variable = act.variable.replace(
                             act.variable,
                             "{quant}__{var}".format(
