@@ -50,10 +50,11 @@ class ReplaceVariable(Variation):
             logger.fatal("Variation {} not found in ntuple".format(self.variation))
             raise NameError
         else:
-            list_of_quantitys = set(unit.dataset.quantities_per_vars[self.variation])
+            list_of_quantities = set(unit.dataset.quantities_per_vars[self.variation])
             for sel_obj in new_selections:
                 for cut in sel_obj.cuts:
-                    for quantity in list_of_quantitys & get_quantities_from_expression(
+                    # if any quantities used in the cut are in the list of quantities affected by the variation, replace them
+                    for quantity in list_of_quantities & get_quantities_from_expression(
                         cut.expression
                     ):
                         cut.expression = cut.expression.replace(
@@ -66,7 +67,8 @@ class ReplaceVariable(Variation):
                             f"Replaced expression {quantity} with {cut.expression} ( quantity: {quantity}, var: {self.variation})"
                         )
                 for weight in sel_obj.weights:
-                    for quantity in list_of_quantitys & get_quantities_from_expression(
+                    # if any quantities used in the weight are in the list of quantities affected by the variation, replace them
+                    for quantity in list_of_quantities & get_quantities_from_expression(
                         weight.expression
                     ):
                         logger.debug(f"Initial weight: {weight.expression}")
@@ -80,7 +82,8 @@ class ReplaceVariable(Variation):
                             f"Replaced weight {quantity} with {weight.expression} ( quantity: {quantity}, var: {self.variation})"
                         )
             for act in new_actions:
-                for quantity in list_of_quantitys & get_quantities_from_expression(
+                # if any quantities used in the action variables are in the list of quantities affected by the variation, replace them
+                for quantity in list_of_quantities & get_quantities_from_expression(
                     act.variable
                 ):
                     act.variable = act.variable.replace(
