@@ -13,16 +13,19 @@ logger = logging.getLogger(__name__)
 
 def get_quantities_from_expression(expression):
     # first change all operators to &&
-    for operator in ["<", ">", "=", "!=", "+", "-", "*", "/", "||", ">=", "<=", "&&"]:
+    for operator in ["<", ">", "=", "!=", "+", "-", "*", "/", "||", ">=", "<=", "&&", "(", ")", "!"]:
         expression = expression.replace(operator, "&&")
     # then remove all brackets and spaces
-    expression = expression.replace("(", " ").replace(")", " ").replace(" ", "")
-    # then split by && and remove empty strings
+    expression = expression.replace(" ", "")
+    # then split by && and remove empty strings and numbers
     quantities = [
         q
         for q in expression.split("&&")
         if not q.replace(".", "", 1).isdigit() and q != ""
     ]
+    # special keywords can also be filtered out
+    special_keywords = ["true", "false", "abs"]
+    quantities = [q for q in quantities if q not in special_keywords]
     # return a set of quantities
     return set(quantities)
 
@@ -46,6 +49,7 @@ class ReplaceVariable(Variation):
     def create(self, unit):
         new_selections = deepcopy(unit.selections)
         new_actions = deepcopy(unit.actions)
+        replaced = False
         if self.variation not in unit.dataset.quantities_per_vars:
             logger.fatal("Variation {} not found in ntuple".format(self.variation))
             raise NameError
@@ -63,6 +67,7 @@ class ReplaceVariable(Variation):
                                 quantity=quantity, var=self.variation
                             ),
                         )
+                        replaced = True
                         logger.debug(
                             f"Replaced expression {quantity} with {cut.expression} ( quantity: {quantity}, var: {self.variation})"
                         )
@@ -78,6 +83,7 @@ class ReplaceVariable(Variation):
                                 quantity=quantity, var=self.variation
                             ),
                         )
+                        replaced = True
                         logger.debug(
                             f"Replaced weight {quantity} with {weight.expression} ( quantity: {quantity}, var: {self.variation})"
                         )
@@ -92,8 +98,11 @@ class ReplaceVariable(Variation):
                             quantity=act.variable, var=self.variation
                         ),
                     )
+                    replaced = True
                     logger.debug(f"Replaced act {quantity} with {act.variable}")
-            return Unit(unit.dataset, new_selections, new_actions, self)
+        if not replaced:
+            logger.warning(f"For variation {self.variation} on unit {unit} no quantities were replaced, the shift has no effect..")
+        return Unit(unit.dataset, new_selections, new_actions, self)
 
 
 class ChangeDataset(Variation):

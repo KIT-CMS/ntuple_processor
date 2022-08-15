@@ -166,6 +166,8 @@ def dataset_from_crownoutput(
                 if var not in quantities_per_vars.keys():
                     quantities_per_vars[var] = []
                 quantities_per_vars[var].append(quantity)
+            if "-" in qwv_name:
+                logger.warning("Found a '-' in quantity name {} - This can result in unwanted behaviour for systematic shifts".format(qwv_name))
         root_file.Close()
         return quantities_per_vars
 
