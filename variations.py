@@ -10,15 +10,22 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def get_quantities_from_expression(expression):
     # first change all operators to &&
-    for operator in ["<", ">", "=", "!=", "+", "-", "*", "/", "||"]:
+    for operator in ["<", ">", "=", "!=", "+", "-", "*", "/", "||", ">=", "<=", "&&"]:
         expression = expression.replace(operator, "&&")
     # then remove all brackets and spaces
     expression = expression.replace("(", " ").replace(")", " ").replace(" ", "")
     # then split by && and remove empty strings
-    quantities = [ q for q in expression.split("&&") if not q.replace('.','',1).isdigit() and q != ""]
-    return quantities
+    quantities = [
+        q
+        for q in expression.split("&&")
+        if not q.replace(".", "", 1).isdigit() and q != ""
+    ]
+    # return a set of quantities
+    return set(quantities)
+
 
 class ReplaceVariable(Variation):
     """
@@ -36,8 +43,6 @@ class ReplaceVariable(Variation):
         Variation.__init__(self, name)
         self.variation = variation
 
-
-
     def create(self, unit):
         new_selections = deepcopy(unit.selections)
         new_actions = deepcopy(unit.actions)
@@ -45,41 +50,46 @@ class ReplaceVariable(Variation):
             logger.fatal("Variation {} not found in ntuple".format(self.variation))
             raise NameError
         else:
-            list_of_quants = unit.dataset.quantities_per_vars[self.variation]
-            for quant in list_of_quants:
-                for sel_obj in new_selections:
-                    for cut in sel_obj.cuts:
-                        if quant in get_quantities_from_expression(cut.expression):
-                            cut.expression = cut.expression.replace(
-                                quant,
-                                "{quant}__{var}".format(
-                                    quant=quant, var=self.variation
-                                ),
-                            )
-                            logger.debug(
-                                f"Replaced expression {quant} with {cut.expression} ( quant: {quant}, var: {self.variation}"
-                            )
-                    for weight in sel_obj.weights:
-                        if quant in get_quantities_from_expression(weight.expression):
-                            logger.debug(f"Initial weight: {weight.expression}")
-                            weight.expression = weight.expression.replace(
-                                quant,
-                                "{quant}__{var}".format(
-                                    quant=quant, var=self.variation
-                                ),
-                            )
-                            logger.debug(
-                                f"Replaced weight {quant} with {weight.expression} ( quant: {quant}, var: {self.variation}"
-                            )
-                for act in new_actions:
-                    if quant in get_quantities_from_expression(act.variable):
-                        act.variable = act.variable.replace(
-                            act.variable,
-                            "{quant}__{var}".format(
-                                quant=act.variable, var=self.variation
+            list_of_quantitys = set(unit.dataset.quantities_per_vars[self.variation])
+            for sel_obj in new_selections:
+                for cut in sel_obj.cuts:
+                    for quantity in list_of_quantitys & get_quantities_from_expression(
+                        cut.expression
+                    ):
+                        cut.expression = cut.expression.replace(
+                            quantity,
+                            "{quantity}__{var}".format(
+                                quantity=quantity, var=self.variation
                             ),
                         )
-                        logger.debug(f"Replaced act {quant} with {act.variable}")
+                        logger.debug(
+                            f"Replaced expression {quantity} with {cut.expression} ( quantity: {quantity}, var: {self.variation})"
+                        )
+                for weight in sel_obj.weights:
+                    for quantity in list_of_quantitys & get_quantities_from_expression(
+                        weight.expression
+                    ):
+                        logger.debug(f"Initial weight: {weight.expression}")
+                        weight.expression = weight.expression.replace(
+                            quantity,
+                            "{quantity}__{var}".format(
+                                quantity=quantity, var=self.variation
+                            ),
+                        )
+                        logger.debug(
+                            f"Replaced weight {quantity} with {weight.expression} ( quantity: {quantity}, var: {self.variation})"
+                        )
+            for act in new_actions:
+                for quantity in list_of_quantitys & get_quantities_from_expression(
+                    act.variable
+                ):
+                    act.variable = act.variable.replace(
+                        act.variable,
+                        "{quantity}__{var}".format(
+                            quantity=act.variable, var=self.variation
+                        ),
+                    )
+                    logger.debug(f"Replaced act {quantity} with {act.variable}")
             return Unit(unit.dataset, new_selections, new_actions, self)
 
 
