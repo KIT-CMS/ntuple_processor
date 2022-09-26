@@ -114,9 +114,9 @@ class ReplaceVariable(Variation):
                     act.variable
                 ):
                     act.variable = act.variable.replace(
-                        act.variable,
+                        quantity,
                         "{quantity}__{var}".format(
-                            quantity=act.variable, var=self.variation
+                            quantity=quantity, var=self.variation
                         ),
                     )
                     replaced = True
