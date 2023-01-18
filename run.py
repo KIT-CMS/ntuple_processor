@@ -75,6 +75,9 @@ class RunManager:
                 repr(graph), end - start
             )
         )
+        # Reset all friend trees to close the files
+        for ch in [*self.tchains, *self.friend_tchains]:
+            ch.Reset()
         return results
 
     def run_locally(self, output, nworkers=1, nthreads=1):
