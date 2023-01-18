@@ -173,17 +173,11 @@ def dataset_from_crownoutput(
         root_file.Close()
         return quantities_per_vars
 
-    def get_full_tree_name(path_to_root_file, tree_name):
-        root_file = TFile(path_to_root_file)
+    def is_empty_file(path_to_root_file, tree_name):
+        root_file = TFile.Open(path_to_root_file)
         if root_file.IsZombie():
             logger.fatal("File {} does not exist, abort".format(path_to_root_file))
             raise FileNotFoundError
-        root_file.Close()
-        full_tree_name = tree_name
-        return full_tree_name
-
-    def is_empty_file(path_to_root_file, tree_name):
-        root_file = TFile.Open(path_to_root_file)
         if tree_name not in [x.GetTitle() for x in root_file.GetListOfKeys()]:
             return True
         root_file.Close()
@@ -279,7 +273,7 @@ def dataset_from_crownoutput(
     }
     valid = True
     for root_file, file_name in root_files:
-        tdf_tree = get_full_tree_name(root_file, "ntuple")
+        tdf_tree = "ntuple"
         friends = []
         friend_paths = []
         for friends_base_directory in friends_base_directories:
@@ -295,14 +289,8 @@ def dataset_from_crownoutput(
                     friends_base_directory, era, file_name, channel, friend_base_name
                 )
             friend_paths.append(friend_path)
-            tdf_tree_friend = get_full_tree_name(friend_path, "ntuple")
-            if tdf_tree != tdf_tree_friend:
-                logger.fatal(
-                    "Extracted wrong TDirectoryFile from friend which is not the same than the base file."
-                )
-                raise Exception
             if not is_empty_file(friend_path, tdf_tree):
-                friends.append(Ntuple(friend_path, tdf_tree_friend))
+                friends.append(Ntuple(friend_path, tdf_tree))
         if not is_empty_file(root_file, tdf_tree):
             ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
             if validate_samples:
