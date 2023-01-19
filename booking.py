@@ -125,7 +125,7 @@ def dataset_from_crownoutput(
     files_base_directory,
     friends_base_directories=None,
     validate_samples=False,
-    xrootd=False
+    xrootd=False,
 ):
     """Create a Dataset object from a list containing the names
     of the ROOT files (e.g. [root_file1, root_file2, (...)]):
@@ -169,7 +169,11 @@ def dataset_from_crownoutput(
                     quantities_per_vars[var] = []
                 quantities_per_vars[var].append(quantity)
             if "-" in qwv_name:
-                logger.warning("Found a '-' in quantity name {} - This can result in unwanted behaviour for systematic shifts".format(qwv_name))
+                logger.warning(
+                    "Found a '-' in quantity name {} - This can result in unwanted behaviour for systematic shifts".format(
+                        qwv_name
+                    )
+                )
         root_file.Close()
         return quantities_per_vars
 
@@ -207,11 +211,15 @@ def dataset_from_crownoutput(
 
     def check_validity(root_file_path, validation_dict, friends):
         root_file = TFile.Open(root_file_path)
-        quantities = set([x.GetName() for x in root_file.Get("ntuple").GetListOfLeaves()])
+        quantities = set(
+            [x.GetName() for x in root_file.Get("ntuple").GetListOfLeaves()]
+        )
         friend_quantitites = set()
         for f in friends:
             friend = TFile.Open(f)
-            friend_quantitites.update(set([x.GetName() for x in friend.Get("ntuple").GetListOfLeaves()]))
+            friend_quantitites.update(
+                set([x.GetName() for x in friend.Get("ntuple").GetListOfLeaves()])
+            )
         # first we check the main ntuple, then the friends
         errordata = {}
         if len(validation_dict["varset"]) == 0:
@@ -225,7 +233,9 @@ def dataset_from_crownoutput(
         if len(validation_dict["friends_varset"]) == 0:
             validation_dict["friends_varset"] = friend_quantitites
         else:
-            difference = validation_dict["friends_varset"].symmetric_difference(friend_quantitites)
+            difference = validation_dict["friends_varset"].symmetric_difference(
+                friend_quantitites
+            )
             if len(difference) != 0:
                 # error is found
                 errordata["friends"] = friends
@@ -233,7 +243,6 @@ def dataset_from_crownoutput(
         if errordata != {}:
             validation_dict["errors"].append(errordata)
         root_file.Close()
-
 
     # files_base_directory: ntuple/era
     # friends_base_directory: friends/friend_type/era
@@ -244,34 +253,39 @@ def dataset_from_crownoutput(
         xrdclient = client.FileSystem(fsname)
         for f in file_names:
             status, listing = xrdclient.dirlist(
-                os.path.join("",
-                            files_base_directory,
-                            era,
-                            f,
-                            channel
-                            )
-                )
+                os.path.join("", files_base_directory, era, f, channel)
+            )
             for g in listing:
                 # os.path.join omits parts with colons as it thinks they are drives,
                 # use default join instead
                 root_files.append(
-                ("/".join([fsname, os.path.join(files_base_directory,era, f, channel, g.name)]), f)
+                    (
+                        "/".join(
+                            [
+                                fsname,
+                                os.path.join(
+                                    files_base_directory, era, f, channel, g.name
+                                ),
+                            ]
+                        ),
+                        f,
+                    )
                 )
     else:
         for f in file_names:
             for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
-                # only consider files with .root in the end 
+                # only consider files with .root in the end
                 filepath = (os.path.join(files_base_directory, era, f, channel, g), f)
                 if filepath[0].endswith(".root"):
                     root_files.append(filepath)
     ntuples = []
     if validate_samples:
-        logger.info("Running ntuple validation for {} - {} - {}".format(era, channel, dataset_name))
-    validation_dict = {
-        "varset": set(),
-        "friends_varset": set(),
-        "errors": []
-    }
+        logger.info(
+            "Running ntuple validation for {} - {} - {}".format(
+                era, channel, dataset_name
+            )
+        )
+    validation_dict = {"varset": set(), "friends_varset": set(), "errors": []}
     valid = True
     for root_file, file_name in root_files:
         tdf_tree = "ntuple"
@@ -280,11 +294,18 @@ def dataset_from_crownoutput(
         for friends_base_directory in friends_base_directories:
             friend_base_name = os.path.basename(root_file)
             if xrootd:
-                friend_path = "/".join([
-                    fsname,
-                    os.path.join(
-                        friends_base_directory, era, file_name, channel, friend_base_name
-                    )])
+                friend_path = "/".join(
+                    [
+                        fsname,
+                        os.path.join(
+                            friends_base_directory,
+                            era,
+                            file_name,
+                            channel,
+                            friend_base_name,
+                        ),
+                    ]
+                )
             else:
                 friend_path = os.path.join(
                     friends_base_directory, era, file_name, channel, friend_base_name
@@ -297,18 +318,30 @@ def dataset_from_crownoutput(
             if validate_samples:
                 check_validity(root_file, validation_dict, friend_paths)
     if len(validation_dict["errors"]) != 0:
-        logger.fatal("Validation for {} - {} - {} failed, differences were found".format(era, channel, dataset_name))
+        logger.fatal(
+            "Validation for {} - {} - {} failed, differences were found".format(
+                era, channel, dataset_name
+            )
+        )
         for i, error in enumerate(validation_dict["errors"]):
             if "difference" in error:
                 if len(error["difference"]) != 0:
-                    logger.fatal("File {} has the following differences:".format(error["file"]))
+                    logger.fatal(
+                        "File {} has the following differences:".format(error["file"])
+                    )
                     logger.fatal("\t{}".format(error["difference"]))
             if "friends_difference" in error:
                 if len(error["friends_difference"]) != 0:
-                    logger.fatal("Friends {} have the following differences:".format(error["friends"]))
+                    logger.fatal(
+                        "Friends {} have the following differences:".format(
+                            error["friends"]
+                        )
+                    )
                     logger.fatal("\t{}".format(error["friends_difference"]))
     else:
-        logger.info("Validation for {} - {} - {} passed".format(era, channel, dataset_name))
+        logger.info(
+            "Validation for {} - {} - {} passed".format(era, channel, dataset_name)
+        )
 
     quantities_per_vars = get_quantities_per_variation(root_files[0][0])
     return Dataset(dataset_name, ntuples, quantities_per_vars=quantities_per_vars)

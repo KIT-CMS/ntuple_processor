@@ -8,8 +8,8 @@ class Variation:
     Attributes:
         name (str): name assigned to the variation
     """
-    def __init__(self,
-            name):
+
+    def __init__(self, name):
         self.name = name
 
     def create(self, unit):
