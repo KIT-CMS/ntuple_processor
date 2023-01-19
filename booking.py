@@ -17,6 +17,7 @@ import os
 import re
 import json
 import itertools
+from XRootD import client
 
 import logging
 
@@ -53,7 +54,7 @@ def dataset_from_artusoutput(
     """
 
     def get_full_tree_name(folder, path_to_root_file, tree_name):
-        root_file = TFile(path_to_root_file)
+        root_file = TFile.Open(path_to_root_file)
         if root_file.IsZombie():
             logger.fatal("File {} does not exist, abort".format(path_to_root_file))
             raise FileNotFoundError
@@ -123,7 +124,8 @@ def dataset_from_crownoutput(
     folder,
     files_base_directory,
     friends_base_directories=None,
-    validate_samples=False
+    validate_samples=False,
+    xrootd=False
 ):
     """Create a Dataset object from a list containing the names
     of the ROOT files (e.g. [root_file1, root_file2, (...)]):
@@ -153,7 +155,7 @@ def dataset_from_crownoutput(
     """
 
     def get_quantities_per_variation(path_to_root_file):
-        root_file = TFile(path_to_root_file)
+        root_file = TFile.Open(path_to_root_file)
         if root_file.IsZombie():
             logger.fatal("File {} does not exist, abort".format(path_to_root_file))
             raise FileNotFoundError
@@ -171,17 +173,11 @@ def dataset_from_crownoutput(
         root_file.Close()
         return quantities_per_vars
 
-    def get_full_tree_name(path_to_root_file, tree_name):
-        root_file = TFile(path_to_root_file)
+    def is_empty_file(path_to_root_file, tree_name):
+        root_file = TFile.Open(path_to_root_file)
         if root_file.IsZombie():
             logger.fatal("File {} does not exist, abort".format(path_to_root_file))
             raise FileNotFoundError
-        root_file.Close()
-        full_tree_name = tree_name
-        return full_tree_name
-
-    def is_empty_file(path_to_root_file, tree_name):
-        root_file = TFile(path_to_root_file)
         if tree_name not in [x.GetTitle() for x in root_file.GetListOfKeys()]:
             return True
         root_file.Close()
@@ -210,11 +206,11 @@ def dataset_from_crownoutput(
         return friends
 
     def check_validity(root_file_path, validation_dict, friends):
-        root_file = TFile(root_file_path)
+        root_file = TFile.Open(root_file_path)
         quantities = set([x.GetName() for x in root_file.Get("ntuple").GetListOfLeaves()])
         friend_quantitites = set()
         for f in friends:
-            friend = TFile(f)
+            friend = TFile.Open(f)
             friend_quantitites.update(set([x.GetName() for x in friend.Get("ntuple").GetListOfLeaves()]))
         # first we check the main ntuple, then the friends
         errordata = {}
@@ -236,17 +232,38 @@ def dataset_from_crownoutput(
                 errordata["friends_difference"] = difference
         if errordata != {}:
             validation_dict["errors"].append(errordata)
+        root_file.Close()
 
 
     # files_base_directory: ntuple/era
     # friends_base_directory: friends/friend_type/era
     root_files = []
-    for f in file_names:
-        for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
-            # only consider files with .root in the end 
-            filepath = (os.path.join(files_base_directory, era, f, channel, g), f)
-            if filepath[0].endswith(".root"):
-                root_files.append(filepath)
+    # Set up reading of file system via xrootd bindings
+    if xrootd:
+        fsname = "root://cmsxrootd-kit.gridka.de:1094"
+        xrdclient = client.FileSystem(fsname)
+        for f in file_names:
+            status, listing = xrdclient.dirlist(
+                os.path.join("",
+                            files_base_directory,
+                            era,
+                            f,
+                            channel
+                            )
+                )
+            for g in listing:
+                # os.path.join omits parts with colons as it thinks they are drives,
+                # use default join instead
+                root_files.append(
+                ("/".join([fsname, os.path.join(files_base_directory,era, f, channel, g.name)]), f)
+                )
+    else:
+        for f in file_names:
+            for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
+                # only consider files with .root in the end 
+                filepath = (os.path.join(files_base_directory, era, f, channel, g), f)
+                if filepath[0].endswith(".root"):
+                    root_files.append(filepath)
     ntuples = []
     if validate_samples:
         logger.info("Running ntuple validation for {} - {} - {}".format(era, channel, dataset_name))
@@ -257,23 +274,24 @@ def dataset_from_crownoutput(
     }
     valid = True
     for root_file, file_name in root_files:
-        tdf_tree = get_full_tree_name(root_file, "ntuple")
+        tdf_tree = "ntuple"
         friends = []
         friend_paths = []
         for friends_base_directory in friends_base_directories:
             friend_base_name = os.path.basename(root_file)
-            friend_path = os.path.join(
-                friends_base_directory, era, file_name, channel, friend_base_name
-            )
-            friend_paths.append(friend_path)
-            tdf_tree_friend = get_full_tree_name(friend_path, "ntuple")
-            if tdf_tree != tdf_tree_friend:
-                logger.fatal(
-                    "Extracted wrong TDirectoryFile from friend which is not the same than the base file."
+            if xrootd:
+                friend_path = "/".join([
+                    fsname,
+                    os.path.join(
+                        friends_base_directory, era, file_name, channel, friend_base_name
+                    )])
+            else:
+                friend_path = os.path.join(
+                    friends_base_directory, era, file_name, channel, friend_base_name
                 )
-                raise Exception
+            friend_paths.append(friend_path)
             if not is_empty_file(friend_path, tdf_tree):
-                friends.append(Ntuple(friend_path, tdf_tree_friend))
+                friends.append(Ntuple(friend_path, tdf_tree))
         if not is_empty_file(root_file, tdf_tree):
             ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
             if validate_samples:

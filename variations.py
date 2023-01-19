@@ -7,6 +7,7 @@ from .utils import Selection
 from .utils import Variation
 
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +83,10 @@ class ReplaceVariable(Variation):
                     for quantity in list_of_quantities & get_quantities_from_expression(
                         cut.expression
                     ):
-                        cut.expression = cut.expression.replace(
-                            quantity,
-                            "{quantity}__{var}".format(
-                                quantity=quantity, var=self.variation
-                            ),
+                        cut.expression = re.sub(
+                            rf"\b({quantity})\b",
+                            f"{quantity}__{self.variation}",
+                            cut.expression,
                         )
                         replaced = True
                         logger.debug(
@@ -98,29 +98,32 @@ class ReplaceVariable(Variation):
                         weight.expression
                     ):
                         logger.debug(f"Initial weight: {weight.expression}")
-                        weight.expression = weight.expression.replace(
-                            quantity,
-                            "{quantity}__{var}".format(
-                                quantity=quantity, var=self.variation
-                            ),
+                        weight.expression = re.sub(
+                            rf"\b({quantity})\b",
+                            f"{quantity}__{self.variation}",
+                            weight.expression,
                         )
                         replaced = True
                         logger.debug(
                             f"Replaced weight {quantity} with {weight.expression} ( quantity: {quantity}, var: {self.variation})"
                         )
             for act in new_actions:
+                old_act = deepcopy(act.variable)
                 # if any quantities used in the action variables are in the list of quantities affected by the variation, replace them
                 for quantity in list_of_quantities & get_quantities_from_expression(
                     act.variable
                 ):
-                    act.variable = act.variable.replace(
-                        quantity,
-                        "{quantity}__{var}".format(
-                            quantity=quantity, var=self.variation
-                        ),
+                    logger.debug(
+                        f"Replacing quantity {quantity} with {quantity}__{self.variation}"
+                    )
+                    act.variable = re.sub(
+                        rf"\b({quantity})\b",
+                        f"{quantity}__{self.variation}",
+                        act.variable,
                     )
                     replaced = True
-                    logger.debug(f"Replaced act {quantity} with {act.variable}")
+                    logger.debug(f"Replaced act {old_act} with {act.variable}")
+                    old_act = deepcopy(act.variable)
         if not replaced:
             logger.warning(
                 f"[Unused Variation] For variation {self.variation} on unit {unit.dataset.name} no quantities were replaced, the shift has no effect.."
