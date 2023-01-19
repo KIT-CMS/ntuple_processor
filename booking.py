@@ -260,9 +260,10 @@ def dataset_from_crownoutput(
     else:
         for f in file_names:
             for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
-                root_files.append(
-                    (os.path.join(files_base_directory, era, f, channel, g), f)
-                )
+                # only consider files with .root in the end 
+                filepath = (os.path.join(files_base_directory, era, f, channel, g), f)
+                if filepath[0].endswith(".root"):
+                    root_files.append(filepath)
     ntuples = []
     if validate_samples:
         logger.info("Running ntuple validation for {} - {} - {}".format(era, channel, dataset_name))
