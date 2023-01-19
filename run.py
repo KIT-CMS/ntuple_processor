@@ -75,6 +75,9 @@ class RunManager:
                 repr(graph), end - start
             )
         )
+        # Reset all friend trees to close the files
+        for ch in [*self.tchains, *self.friend_tchains]:
+            ch.Reset()
         return results
 
     def run_locally(self, output, nworkers=1, nthreads=1):
@@ -102,8 +105,11 @@ class RunManager:
             )
         )
         start = time()
-        with Pool(nworkers) as pool:
-            final_results = list(pool.map(self._run_multiprocess, self.graphs))
+        if nworkers == 1:
+            final_results = list(map(self._run_multiprocess, self.graphs))
+        else:
+            with Pool(nworkers) as pool:
+                final_results = list(pool.map(self._run_multiprocess, self.graphs))
         final_results = [j for i in final_results for j in i]
         end = time()
         logger.info("Finished computations in {} seconds".format(int(end - start)))
