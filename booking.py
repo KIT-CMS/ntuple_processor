@@ -335,6 +335,18 @@ def dataset_from_crownoutput(
                 friends.append(Ntuple(friend_path, tdf_tree))
         if not validation_dict["files"][root_file]["is_empty"]:
             ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
+    # Perform check of number of files
+    if len(validation_dict["files"].keys()) > len(root_files):
+        miss_files = set(validation_dict["files"].keys()).difference(
+            set(rfile[0] for rfile in root_files)
+        )
+        logger.fatal(
+            f"Number of files expected and in database do not agree for dataset {dataset_name}.\n"
+            f"The missing files are: {miss_files}"
+        )
+        raise ValueError(
+            f"Number of files expected and in database do not agree for dataset {dataset_name}."
+        )
     # Report on obtained validation information for dataset
     found_error = False
     for root_file, _ in root_files:
