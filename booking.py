@@ -121,7 +121,6 @@ def dataset_from_crownoutput(
     file_names,
     era,
     channel,
-    folder,
     files_base_directory,
     friends_base_directories=None,
     validate_samples=False,
