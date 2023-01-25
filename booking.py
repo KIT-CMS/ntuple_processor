@@ -15,7 +15,7 @@ from ROOT import TFile
 
 import os
 import re
-import json
+import yaml
 import itertools
 from XRootD import client
 
@@ -154,11 +154,7 @@ def dataset_from_crownoutput(
         dataset (Dataset): Dataset object containing TTrees
     """
 
-    def get_quantities_per_variation(path_to_root_file):
-        root_file = TFile.Open(path_to_root_file)
-        if root_file.IsZombie():
-            logger.fatal("File {} does not exist, abort".format(path_to_root_file))
-            raise FileNotFoundError
+    def get_quantities_per_variation(root_file):
         quantities_per_vars = {}
         quantities_with_variations = root_file.Get("ntuple").GetListOfLeaves()
         for qwv in quantities_with_variations:
@@ -174,18 +170,7 @@ def dataset_from_crownoutput(
                         qwv_name
                     )
                 )
-        root_file.Close()
         return quantities_per_vars
-
-    def is_empty_file(path_to_root_file, tree_name):
-        root_file = TFile.Open(path_to_root_file)
-        if root_file.IsZombie():
-            logger.fatal("File {} does not exist, abort".format(path_to_root_file))
-            raise FileNotFoundError
-        if tree_name not in [x.GetTitle() for x in root_file.GetListOfKeys()]:
-            return True
-        root_file.Close()
-        return False
 
     def add_tagged_friends(friends):
         """Tag friends with the name of the different directories
@@ -209,40 +194,60 @@ def dataset_from_crownoutput(
                         f2.tag = t
         return friends
 
-    def check_validity(root_file_path, validation_dict, friends):
+    def populate_val_database(root_file_path, validation_dict, friends):
+        def extract_quantities(infile):
+            if infile.IsZombie():
+                logger.fatal("File {} does not exist, abort".format(infile.GetName()))
+                raise FileNotFoundError
+            if "ntuple" not in [x.GetTitle() for x in infile.GetListOfKeys()]:
+                quantities = set()
+            else:
+                quantities = set(
+                    [x.GetName() for x in infile.Get("ntuple").GetListOfLeaves()]
+                )
+            return quantities
+
+        # Check if file can be opened and is not empty
         root_file = TFile.Open(root_file_path)
-        quantities = set(
-            [x.GetName() for x in root_file.Get("ntuple").GetListOfLeaves()]
-        )
+        quantities = extract_quantities(root_file)
+        is_empty = len(quantities) == 0
+        if "quantities_per_vars" in validation_dict or is_empty:
+            pass
+        else:
+            validation_dict["quantities_per_vars"] = get_quantities_per_variation(
+                root_file
+            )
+        root_file.Close()
+        # Do the same for the friend trees
         friend_quantitites = set()
+        friend_empty = False
         for f in friends:
             friend = TFile.Open(f)
-            friend_quantitites.update(
-                set([x.GetName() for x in friend.Get("ntuple").GetListOfLeaves()])
-            )
+            fr_quants = extract_quantities(friend)
+            friend.Close()
+            friend_quantitites.update(fr_quants)
+            friend_empty = friend_empty or len(fr_quants) == 0
         # first we check the main ntuple, then the friends
-        errordata = {}
+        fileinfo = {}
+        fileinfo["is_empty"] = is_empty
+        fileinfo["friend_is_empty"] = friend_empty
         if len(validation_dict["varset"]) == 0:
             validation_dict["varset"] = quantities
+            difference = set()
         else:
             difference = validation_dict["varset"].symmetric_difference(quantities)
-            if len(difference) != 0:
-                # error is found
-                errordata["file"] = root_file_path
-                errordata["difference"] = difference
+        fileinfo["difference"] = difference
         if len(validation_dict["friends_varset"]) == 0:
             validation_dict["friends_varset"] = friend_quantitites
+            difference = set()
         else:
             difference = validation_dict["friends_varset"].symmetric_difference(
                 friend_quantitites
             )
-            if len(difference) != 0:
-                # error is found
-                errordata["friends"] = friends
-                errordata["friends_difference"] = difference
-        if errordata != {}:
-            validation_dict["errors"].append(errordata)
-        root_file.Close()
+        fileinfo["friends"] = friends
+        fileinfo["friends_difference"] = difference
+        validation_dict["files"][root_file_path] = fileinfo
+        return
 
     # files_base_directory: ntuple/era
     # friends_base_directory: friends/friend_type/era
@@ -279,14 +284,23 @@ def dataset_from_crownoutput(
                 if filepath[0].endswith(".root"):
                     root_files.append(filepath)
     ntuples = []
-    if validate_samples:
+    read_from_database = False
+    if os.path.exists(f"validation_database/{era}_{channel}_{dataset_name}.yaml"):
+        logger.info(
+            "Reading validation information for dataset {} - {} - {}".format(
+                era, channel, dataset_name
+            )
+        )
+        with open(f"validation_database/{era}_{channel}_{dataset_name}.yaml") as fi:
+            validation_dict = yaml.safe_load(fi)
+        read_from_database = True
+    else:
         logger.info(
             "Running ntuple validation for {} - {} - {}".format(
                 era, channel, dataset_name
             )
         )
-    validation_dict = {"varset": set(), "friends_varset": set(), "errors": []}
-    valid = True
+        validation_dict = {"varset": set(), "friends_varset": set(), "files": {}}
     for root_file, file_name in root_files:
         tdf_tree = "ntuple"
         friends = []
@@ -311,40 +325,61 @@ def dataset_from_crownoutput(
                     friends_base_directory, era, file_name, channel, friend_base_name
                 )
             friend_paths.append(friend_path)
-            if not is_empty_file(friend_path, tdf_tree):
-                friends.append(Ntuple(friend_path, tdf_tree))
-        if not is_empty_file(root_file, tdf_tree):
-            ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
-            if validate_samples:
-                check_validity(root_file, validation_dict, friend_paths)
-    if len(validation_dict["errors"]) != 0:
-        logger.fatal(
-            "Validation for {} - {} - {} failed, differences were found".format(
-                era, channel, dataset_name
+        if not read_from_database:
+            populate_val_database(root_file, validation_dict, friend_paths)
+        if root_file not in validation_dict["files"]:
+            raise ValueError(
+                "File {} not found in validation results.".format(root_file)
             )
-        )
-        for i, error in enumerate(validation_dict["errors"]):
-            if "difference" in error:
-                if len(error["difference"]) != 0:
-                    logger.fatal(
-                        "File {} has the following differences:".format(error["file"])
+        if not validation_dict["files"][root_file]["friend_is_empty"]:
+            for friend_path in friend_paths:
+                friends.append(Ntuple(friend_path, tdf_tree))
+        if not validation_dict["files"][root_file]["is_empty"]:
+            ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
+    # Report on obtained validation information for dataset
+    found_error = False
+    for root_file, _ in root_files:
+        diff = validation_dict["files"][root_file]["difference"]
+        friends_diff = validation_dict["files"][root_file]["friends_difference"]
+        if len(diff) != 0 or len(friends_diff) != 0:
+            found_error = True
+            logger.fatal(
+                "Validation for {} - {} - {} failed, differences were found".format(
+                    era, channel, dataset_name
+                )
+            )
+            if len(diff) != 0:
+                logger.fatal("File {} has the following differences:".format(root_file))
+                logger.fatal("\t{}".format(diff))
+            if len(friends_diff) != 0:
+                logger.fatal(
+                    "Friends for file {} have the following differences:".format(
+                        root_file
                     )
-                    logger.fatal("\t{}".format(error["difference"]))
-            if "friends_difference" in error:
-                if len(error["friends_difference"]) != 0:
-                    logger.fatal(
-                        "Friends {} have the following differences:".format(
-                            error["friends"]
-                        )
-                    )
-                    logger.fatal("\t{}".format(error["friends_difference"]))
-    else:
+                )
+                logger.fatal("\t{}".format(friends_diff))
+    if not found_error:
         logger.info(
             "Validation for {} - {} - {} passed".format(era, channel, dataset_name)
         )
-
-    quantities_per_vars = get_quantities_per_variation(root_files[0][0])
-    return Dataset(dataset_name, ntuples, quantities_per_vars=quantities_per_vars)
+    # Write the created database
+    if not read_from_database:
+        if not os.path.exists("validation_database"):
+            os.makedirs("validation_database")
+        logger.info(
+            "Writing validation info for {e} - {c} - {dn} to validation_database/{e}_{c}_{dn}.yaml".format(
+                e=era, c=channel, dn=dataset_name
+            )
+        )
+        with open(
+            f"validation_database/{era}_{channel}_{dataset_name}.yaml", "w"
+        ) as outfi:
+            yaml.safe_dump(validation_dict, outfi, sort_keys=True, indent=4)
+    return Dataset(
+        dataset_name,
+        ntuples,
+        quantities_per_vars=validation_dict["quantities_per_vars"],
+    )
 
 
 class Unit:
