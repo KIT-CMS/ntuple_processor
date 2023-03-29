@@ -260,22 +260,20 @@ def dataset_from_crownoutput(
             status, listing = xrdclient.dirlist(
                 os.path.join("", files_base_directory, era, f, channel)
             )
-            for g in listing:
-                # os.path.join omits parts with colons as it thinks they are drives,
-                # use default join instead
-                root_files.append(
-                    (
-                        "/".join(
-                            [
-                                fsname,
-                                os.path.join(
-                                    files_base_directory, era, f, channel, g.name
-                                ),
-                            ]
-                        ),
-                        f,
+            try:
+                for g in listing:
+                    # os.path.join omits parts with colons as it thinks they are drives,
+                    # use default join instead
+                    filepath = "/".join([fsname,os.path.join(files_base_directory, era, f, channel, g.name),])
+                    if filepath.endswith(".root"):
+                        root_files.append((filepath, f))
+            except TypeError:
+                logger.error(
+                    "Could not read file list from directory {}".format(
+                        os.path.join(files_base_directory, era, f, channel)
                     )
                 )
+                raise TypeError
     else:
         for f in file_names:
             for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
