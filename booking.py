@@ -125,6 +125,7 @@ def dataset_from_crownoutput(
     files_base_directory,
     friends_base_directories=None,
     validate_samples=False,
+    validation_tag="v1",
     xrootd=False,
 ):
     """Create a Dataset object from a list containing the names
@@ -260,22 +261,20 @@ def dataset_from_crownoutput(
             status, listing = xrdclient.dirlist(
                 os.path.join("", files_base_directory, era, f, channel)
             )
-            for g in listing:
-                # os.path.join omits parts with colons as it thinks they are drives,
-                # use default join instead
-                root_files.append(
-                    (
-                        "/".join(
-                            [
-                                fsname,
-                                os.path.join(
-                                    files_base_directory, era, f, channel, g.name
-                                ),
-                            ]
-                        ),
-                        f,
+            try:
+                for g in listing:
+                    # os.path.join omits parts with colons as it thinks they are drives,
+                    # use default join instead
+                    filepath = "/".join([fsname,os.path.join(files_base_directory, era, f, channel, g.name),])
+                    if filepath.endswith(".root"):
+                        root_files.append((filepath, f))
+            except TypeError:
+                logger.error(
+                    "Could not read file list from directory {}".format(
+                        os.path.join(files_base_directory, era, f, channel)
                     )
                 )
+                raise TypeError
     else:
         for f in file_names:
             for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
@@ -285,13 +284,14 @@ def dataset_from_crownoutput(
                     root_files.append(filepath)
     ntuples = []
     read_from_database = False
-    if os.path.exists(f"validation_database/{era}_{channel}_{dataset_name}.yaml"):
+    db_path = os.path.join("validation_database",validation_tag)
+    if os.path.exists(f"{db_path}/{era}_{channel}_{dataset_name}.yaml"):
         logger.info(
             "Reading validation information for dataset {} - {} - {}".format(
                 era, channel, dataset_name
             )
         )
-        with open(f"validation_database/{era}_{channel}_{dataset_name}.yaml") as fi:
+        with open(f"{db_path}/{era}_{channel}_{dataset_name}.yaml") as fi:
             validation_dict = yaml.safe_load(fi)
         read_from_database = True
     else:
@@ -376,15 +376,16 @@ def dataset_from_crownoutput(
         )
     # Write the created database
     if not read_from_database:
-        if not os.path.exists("validation_database"):
-            os.makedirs("validation_database")
+        db_path = os.path.join("validation_database",validation_tag)
+        if not os.path.exists(db_path):
+            os.makedirs(db_path)
         logger.info(
-            "Writing validation info for {e} - {c} - {dn} to validation_database/{e}_{c}_{dn}.yaml".format(
-                e=era, c=channel, dn=dataset_name
+            "Writing validation info for {e} - {c} - {dn} to {db_path}/{e}_{c}_{dn}.yaml".format(
+                e=era, c=channel, dn=dataset_name, db_path=db_path
             )
         )
         with open(
-            f"validation_database/{era}_{channel}_{dataset_name}.yaml", "w"
+            f"{db_path}/{era}_{channel}_{dataset_name}.yaml", "w"
         ) as outfi:
             yaml.safe_dump(validation_dict, outfi, sort_keys=True, indent=4)
     return Dataset(
