@@ -1,5 +1,5 @@
 from multiprocessing import Pool
-from time import time
+import time
 import re
 
 from .utils import Count
@@ -48,8 +48,13 @@ class RunManager:
         self.friend_tchains = list()
 
     def _run_multiprocess(self, graph):
-        start = time()
+        start = time.time()
         ptrs, diags = self.node_to_root(graph)
+        logger.info(
+            "Event loop for graph {:} started at {} (Number of shapes {})".format(
+                repr(graph), time.strftime("%H:%M:%S", time.gmtime(time.time())), len(ptrs)
+            )
+        )
         logger.debug(
             "%%%%%%%%%% Ready to produce a subset of {} shapes".format(len(ptrs))
         )
@@ -69,8 +74,8 @@ class RunManager:
             for report in reports:
                 report.Print()
 
-        end = time()
-        logger.debug(
+        end = time.time()
+        logger.info(
             "Event loop for graph {:} run in {:.2f} seconds".format(
                 repr(graph), end - start
             )
@@ -104,14 +109,14 @@ class RunManager:
                 len(self.graphs), nworkers, nthreads
             )
         )
-        start = time()
+        start = time.time()
         if nworkers == 1:
             final_results = list(map(self._run_multiprocess, self.graphs))
         else:
             with Pool(nworkers) as pool:
                 final_results = list(pool.map(self._run_multiprocess, self.graphs))
         final_results = [j for i in final_results for j in i]
-        end = time()
+        end = time.time()
         logger.info("Finished computations in {} seconds".format(int(end - start)))
         logger.info(
             "Write {} results from {} graphs to file {}".format(
