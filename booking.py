@@ -255,7 +255,7 @@ def dataset_from_crownoutput(
     root_files = []
     # Set up reading of file system via xrootd bindings
     if xrootd:
-        fsname = "root://cmsxrootd-kit-disk.gridka.de:1094"
+        fsname = "root://cmsdcache-kit-disk.gridka.de:1094"
         xrdclient = client.FileSystem(fsname)
         for f in file_names:
             status, listing = xrdclient.dirlist(
