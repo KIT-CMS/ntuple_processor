@@ -175,24 +175,22 @@ def dataset_from_crownoutput(
 
     def add_tagged_friends(friends):
         """Tag friends with the name of the different directories
-        in the artus name scheme, e.g.:
-        /common_path/MELA/ntuple -> tag: MELA
-        /common_path/SVFit/ntuple -> tag: SVFit
-        Since when we compare two ntuples (with full path) only one
-        directory changes in this scheme (see MELA vs SVFit), we
-        create a list called 'tags' with these two strings; then we
-        assign this string to friend.tag, if it's None
+        in the CROWN name scheme, e.g.:
+        /common_path/CROWNFriends/fastmtt/ntuple -> tag: fastmtt
+        /common_path/CROWNMultiFriends/NNclassification/ntuple -> tag: NNclassification
+        Since using CROWN two folders containing friends could be present, `CROWNFriends`
+        and `CROWNMultiFriends`, both have to be checked. The next folder in the hierarchy
+        gives us the friend tag independent of friend or multifriend.
         """
-        for f1, f2 in itertools.combinations(friends, 2):
-            l1 = f1.path.split("/")
-            l2 = f2.path.split("/")
-            tags = list(set(l1).symmetric_difference(set(l2)))
-            if tags:
-                for t in tags:
-                    if t in l1 and f1.tag is None:
-                        f1.tag = t
-                    elif t in l2 and f2.tag is None:
-                        f2.tag = t
+        for friend in friends:
+            path_split_list = friend.path.split("/")
+            if "CROWNFriends" in friend.path:
+                idx = path_split_list.index("CROWNFriends")
+            elif "CROWNMultiFriends" in friend.path:
+                idx = path_split_list.index("CROWNMultiFriends")
+            friend_tag = path_split_list[idx+1]
+            if friend.tag is None:
+                friend.tag = friend_tag
         return friends
 
     def populate_val_database(root_file_path, validation_dict, friends):
