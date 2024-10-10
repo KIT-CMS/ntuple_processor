@@ -11,7 +11,7 @@ from .utils import Variation
 from ROOT import gROOT
 
 gROOT.SetBatch(True)
-from ROOT import TFile
+from ROOT import TFile, TTree
 
 import os
 import re
@@ -183,16 +183,25 @@ def dataset_from_crownoutput(
         create a list called 'tags' with these two strings; then we
         assign this string to friend.tag, if it's None
         """
-        for f1, f2 in itertools.combinations(friends, 2):
-            l1 = f1.path.split("/")
-            l2 = f2.path.split("/")
-            tags = list(set(l1).symmetric_difference(set(l2)))
-            if tags:
-                for t in tags:
-                    if t in l1 and f1.tag is None:
-                        f1.tag = t
-                    elif t in l2 and f2.tag is None:
-                        f2.tag = t
+        for friend in friends:
+            path_split_list = friend.path.split("/")
+            if "CROWNFriends" in friend.path:
+                idx = path_split_list.index("CROWNFriends")
+            elif "CROWNMultiFriends" in friend.path:
+                idx = path_split_list.index("CROWNMultiFriends")
+            friend_tag = path_split_list[idx+1]
+            if friend.tag is None:
+                friend.tag = friend_tag
+        # for f1, f2 in itertools.combinations(friends, 2):
+        #     l1 = f1.path.split("/")
+        #     l2 = f2.path.split("/")
+        #     tags = list(set(l1).symmetric_difference(set(l2)))
+        #     if tags:
+        #         for t in tags:
+        #             if t in l1 and f1.tag is None:
+        #                 f1.tag = t
+        #             elif t in l2 and f2.tag is None:
+        #                 f2.tag = t
         return friends
 
     def populate_val_database(root_file_path, validation_dict, friends):
@@ -211,7 +220,7 @@ def dataset_from_crownoutput(
         # Check if file can be opened and is not empty
         root_file = TFile.Open(root_file_path)
         quantities = extract_quantities(root_file)
-        is_empty = len(quantities) == 0
+        is_empty = (len(quantities) == 0) or not isinstance(root_file.Get("ntuple"), TTree)
         if "quantities_per_vars" in validation_dict or is_empty:
             pass
         else:
@@ -222,12 +231,32 @@ def dataset_from_crownoutput(
         # Do the same for the friend trees
         friend_quantitites = set()
         friend_empty = False
-        for f in friends:
-            friend = TFile.Open(f)
-            fr_quants = extract_quantities(friend)
-            friend.Close()
-            friend_quantitites.update(fr_quants)
-            friend_empty = friend_empty or len(fr_quants) == 0
+        if is_empty:
+            friend_empty = True
+        else: 
+            for f in friends:
+                friend = TFile.Open(f)
+                fr_quants = extract_quantities(friend)
+                friend_quantities_per_vars = get_quantities_per_variation(
+                    friend
+                )
+                for variation, quants in friend_quantities_per_vars.items():
+                    if variation in validation_dict["quantities_per_vars"]:
+                        validation_dict["quantities_per_vars"][variation].extend(
+                            q for q in quants if q not in validation_dict["quantities_per_vars"][variation]
+                        )
+                    else:
+                        validation_dict["quantities_per_vars"][variation] = quants
+                # for q in friend_quantities_per_vars:
+                #     if q in validation_dict["quantities_per_vars"]:
+                #         for v in friend_quantities_per_vars[q]:
+                #             if v not in validation_dict["quantities_per_vars"][q]:
+                #                 validation_dict["quantities_per_vars"][q].append(v)
+                #     else:
+                #         validation_dict["quantities_per_vars"][q] = friend_quantities_per_vars[q]
+                friend.Close()
+                friend_quantitites.update(fr_quants)
+                friend_empty = friend_empty or len(fr_quants) == 0
         # first we check the main ntuple, then the friends
         fileinfo = {}
         fileinfo["is_empty"] = is_empty
@@ -255,7 +284,7 @@ def dataset_from_crownoutput(
     root_files = []
     # Set up reading of file system via xrootd bindings
     if xrootd:
-        fsname = "root://cmsxrootd-kit.gridka.de:1094"
+        fsname = "root://cmsdcache-kit-disk.gridka.de:1094"
         xrdclient = client.FileSystem(fsname)
         for f in file_names:
             status, listing = xrdclient.dirlist(
@@ -285,7 +314,7 @@ def dataset_from_crownoutput(
     ntuples = []
     read_from_database = False
     db_path = os.path.join("validation_database",validation_tag)
-    if os.path.exists(f"{db_path}/{era}_{channel}_{dataset_name}.yaml"):
+    if os.path.exists(f"{db_path}/{era}_{channel}_{dataset_name}.yaml") and "nmssm" not in dataset_name:
         logger.info(
             "Reading validation information for dataset {} - {} - {}".format(
                 era, channel, dataset_name
