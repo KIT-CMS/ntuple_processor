@@ -172,7 +172,33 @@ def dataset_from_crownoutput(
                     )
                 )
         return quantities_per_vars
+    def is_root_file_empty(file_path):
+        try:
+            # Try to open the ROOT file
+            root_file = TFile.Open(file_path)
 
+            # Check if the file was opened successfully
+            if not root_file or root_file.IsZombie():
+                print(f"Failed to open file '{file_path}' or it is a zombie.")
+                return True
+
+            # Check if the file contains any keys
+            if root_file.GetNkeys() == 0:
+                print(f"File '{file_path}' contains no keys.")
+                root_file.Close()
+                return True
+            if "ntuple" not in [x.GetTitle() for x in root_file.GetListOfKeys()]:
+                return True
+
+            # If we reach here, the file is not empty
+            root_file.Close()
+            # print(f"File '{file_path}' is not empty.")
+            return False
+
+        except Exception as e:
+            print(f"An error occurred while opening the file: {e}")
+            return True
+        
     def add_tagged_friends(friends):
         """Tag friends with the name of the different directories
         in the CROWN name scheme, e.g.:
@@ -207,25 +233,33 @@ def dataset_from_crownoutput(
             return quantities
 
         # Check if file can be opened and is not empty
-        root_file = TFile.Open(root_file_path)
-        quantities = extract_quantities(root_file)
-        is_empty = len(quantities) == 0
+        # Check if file can be opened and is not empty
+        quantities = {}
+        if is_root_file_empty(root_file_path):
+            #validation_dict["quantities_per_vars"] = {}
+            is_empty = True
+        else:
+            is_empty = False
+            root_file = TFile.Open(root_file_path)
+            quantities = extract_quantities(root_file)
         if "quantities_per_vars" in validation_dict or is_empty:
             pass
         else:
             validation_dict["quantities_per_vars"] = get_quantities_per_variation(
                 root_file
             )
-        root_file.Close()
+            root_file.Close()
         # Do the same for the friend trees
         friend_quantitites = set()
         friend_empty = False
         for f in friends:
-            friend = TFile.Open(f)
-            fr_quants = extract_quantities(friend)
-            friend.Close()
-            friend_quantitites.update(fr_quants)
-            friend_empty = friend_empty or len(fr_quants) == 0
+            if is_root_file_empty(f) or is_empty:
+                friend_empty = True
+            else:
+                friend = TFile.Open(f)
+                fr_quants = extract_quantities(friend)
+                friend.Close()
+                friend_quantitites.update(fr_quants)
         # first we check the main ntuple, then the friends
         fileinfo = {}
         fileinfo["is_empty"] = is_empty
