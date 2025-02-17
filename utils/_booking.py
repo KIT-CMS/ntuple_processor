@@ -1,6 +1,99 @@
+import sys
 import logging
+import warnings
+from config.logging_setup_configs import setup_logging
 
 logger = logging.getLogger(__name__)
+logger = setup_logging("booking.log", logger, level=logging.DEBUG)
+
+
+class WarnDict(dict):
+    """
+    A specialized dictionary that issues runtime warnings on key modifications.
+
+    WarnDict is designed to help track modifications in dictionaries that hold
+    configuration parameters selection cuts or weights. It warns the user when:
+
+      - A key is overwritten (i.e. setting a value for a key that already exists).
+      - A key removal is attempted (either when the key is missing or when it is removed).
+
+    In addition, it provides extra utility methods:
+
+      - report(): Prints a formatted report of the current dictionary contents.
+      - convert(): Converts the dictionary items into a list of tuples with each key-value 
+                   pair reversed. This is useful for interfacing with external modules that 
+                   expect data in that tuple format.
+
+    **Usage Example:**
+
+        >>> cuts = WarnDict()
+        >>> cuts["pt_cut"] = "(pt > 20)"
+        >>> cuts["eta_cut"] = "(abs(eta) < 2.4)"
+        >>> cuts["pt_cut"] = "(pt > 25)"  # Warning: Overwriting existing key: pt_cut
+        >>> cuts.pop("non_existing")      # Warning: Key not found: non_existing
+        >>> cuts.report()                 # Prints a report of all cuts
+        >>> reversed_cuts = cuts.convert()  # Converts and returns reversed tuples
+
+    This class is especially useful when configuration dictionaries are built dynamically
+    and inadvertent overwrites or removals need to be flagged during development.
+    """
+
+    def __setitem__(self, key, value):
+        """
+        Set the value for key, warning if the key already exists.
+
+        Parameters:
+            key: The key to set.
+            value: The value to assign to the key.
+        """
+        if key in self:
+            warnings.warn(f"Overwriting existing key: {key}", stacklevel=2)
+        super().__setitem__(key, value)
+
+    def pop(self, key):
+        """
+        Remove the specified key and return its value, issuing warnings as appropriate.
+
+        Parameters:
+            key: The key to remove.
+
+        Returns:
+            The value corresponding to the removed key.
+
+        Warnings:
+            - If the key is not found, a warning is issued.
+            - If the key is found and removed, a warning is also issued.
+        """
+        if key not in self:
+            warnings.warn(f"Key not found: {key}", stacklevel=2)
+        if key in self:
+            warnings.warn(f"Removing key: {key}", stacklevel=2)
+        return super().pop(key)
+
+    def report(self, msg_prefix=None):
+        """
+        Print a formatted report of the current dictionary contents.
+
+        The report lists all key-value pairs in a structured manner.
+        """
+        if self.items():
+            msg_prefix = "" if msg_prefix is None else f"{msg_prefix}: "
+            msg = f"{msg_prefix}Using:\n"
+            for key, value in self.items():
+                msg += f"    {key}: {value}\n"
+            logger.info(msg)
+
+    def convert(self):
+        """
+        Convert the dictionary into a list of reversed key-value tuples.
+
+        Returns:
+            A list of tuples where each tuple is (value, key).
+
+        This conversion can facilitate interfacing with APIs or classes that expect data
+        in a (value, key) format.
+        """
+        return list(map(tuple, (map(reversed, self.items()))))
 
 
 class Ntuple:
@@ -83,7 +176,21 @@ class Weight(Operation):
 class Selection:
     def __init__(self, name=None, cuts=None, weights=None):
         self.name = name
-        self.set_cuts(cuts)
+        caller = f"{sys._getframe().f_back.f_code.co_name}"
+
+        if isinstance(cuts, WarnDict):
+            if not caller.startswith("<") and not caller.endswith(">"):
+                cuts.report(f"Cuts of {caller}")
+            self.set_cuts(cuts.convert())
+        else:
+            if isinstance(cuts, list) and all(isinstance(cut, tuple) for cut in cuts):
+                if not caller.startswith("<") and not caller.endswith(">"):
+                    WarnDict(dict(map(reversed, cuts))).report(f"Cuts of {caller}")
+            self.set_cuts(cuts)
+
+        if weights is not None:
+            pass
+            # print(f"Weights of {caller}")
         self.set_weights(weights)
 
     def __str__(self):
