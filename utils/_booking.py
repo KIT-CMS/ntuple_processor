@@ -1,10 +1,13 @@
 import sys
 import logging
 import warnings
-from config.logging_setup_configs import setup_logging
 
-logger = logging.getLogger(__name__)
-logger = setup_logging("booking.log", logger, level=logging.DEBUG)
+try:
+    from config.logging_setup_configs import setup_logging
+    logger = logging.getLogger(__name__)
+    logger = setup_logging("booking.log", logger, level=logging.DEBUG)
+except ModuleNotFoundError:
+    logger = logging.getLogger(__name__)
 
 
 class WarnDict(dict):
