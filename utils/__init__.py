@@ -6,6 +6,7 @@ from ._booking import Selection
 from ._booking import Action
 from ._booking import Count
 from ._booking import Histogram
+from ._booking import WarnDict
 
 from ._optimization import Node
 
