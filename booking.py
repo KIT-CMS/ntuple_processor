@@ -233,11 +233,8 @@ def dataset_from_crownoutput(
 
         # Check if file can be opened and is not empty
         quantities = {}
-        if is_root_file_empty(root_file_path):
-            #validation_dict["quantities_per_vars"] = {}
-            is_empty = True
-        else:
-            is_empty = False
+        is_empty = is_root_file_empty(root_file_path)
+        if not is_empty:
             root_file = TFile.Open(root_file_path)
             quantities = extract_quantities(root_file)
         if "quantities_per_vars" in validation_dict or is_empty:
