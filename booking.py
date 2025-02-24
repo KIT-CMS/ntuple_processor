@@ -192,7 +192,6 @@ def dataset_from_crownoutput(
 
             # If we reach here, the file is not empty
             root_file.Close()
-            # print(f"File '{file_path}' is not empty.")
             return False
 
         except Exception as e:
