@@ -232,7 +232,6 @@ def dataset_from_crownoutput(
             return quantities
 
         # Check if file can be opened and is not empty
-        # Check if file can be opened and is not empty
         quantities = {}
         if is_root_file_empty(root_file_path):
             #validation_dict["quantities_per_vars"] = {}
