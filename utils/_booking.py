@@ -181,20 +181,20 @@ class Selection:
         self.name = name
         caller = f"{sys._getframe().f_back.f_code.co_name}"
 
-        if isinstance(cuts, WarnDict):
-            if not caller.startswith("<") and not caller.endswith(">"):
-                cuts.report(f"Cuts of {caller}")
-            self.set_cuts(cuts.convert())
-        else:
-            if isinstance(cuts, list) and all(isinstance(cut, tuple) for cut in cuts):
-                if not caller.startswith("<") and not caller.endswith(">"):
-                    WarnDict(dict(map(reversed, cuts))).report(f"Cuts of {caller}")
-            self.set_cuts(cuts)
+        self.setup_and_info(cuts, self.set_cuts, caller, "Cuts")
+        self.setup_and_info(weights, self.set_weights, caller, "Weights")
 
-        if weights is not None:
-            pass
-            # print(f"Weights of {caller}")
-        self.set_weights(weights)
+    def setup_and_info(self, items, setter, caller, name):
+        is_internal = caller.startswith("<") and caller.endswith(">")
+        if isinstance(items, WarnDict):
+            if not is_internal:
+                items.report(f"{caller} ({name})")
+            setter(items.convert())
+        else:
+            if isinstance(items, list) and all(isinstance(item, tuple) for item in items):
+                if not is_internal:
+                    WarnDict(dict(map(reversed, items))).report(f"{caller}")
+            setter(items)
 
     def __str__(self):
         deb_str = "Selection-{}\n".format(self.name)
