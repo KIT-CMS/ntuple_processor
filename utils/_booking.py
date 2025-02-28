@@ -4,8 +4,7 @@ import warnings
 
 try:
     from config.logging_setup_configs import setup_logging
-    logger = logging.getLogger(__name__)
-    logger = setup_logging("booking.log", logger, level=logging.DEBUG)
+    logger = setup_logging(logger=logging.getLogger(__name__))
 except ModuleNotFoundError:
     logger = logging.getLogger(__name__)
 
