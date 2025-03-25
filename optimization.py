@@ -6,9 +6,12 @@ from .utils import Node
 from .utils import PrintedNode
 from .utils import drawTree2
 
-import logging
-
-logger = logging.getLogger(__name__)
+try:
+    import logging
+    from config.logging_setup_configs import setup_logging
+    logger = setup_logging(logger=logging.getLogger(__name__))
+except ModuleNotFoundError:
+    logger = logging.getLogger(__name__)
 
 
 class Graph(Node):
