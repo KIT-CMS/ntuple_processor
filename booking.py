@@ -19,9 +19,12 @@ import yaml
 import itertools
 from XRootD import client
 
-import logging
-
-logger = logging.getLogger(__name__)
+try:
+    import logging
+    from config.logging_setup_configs import setup_logging
+    logger = setup_logging(logger=logging.getLogger(__name__))
+except ModuleNotFoundError:
+    logger = logging.getLogger(__name__)
 
 
 def dataset_from_artusoutput(

@@ -15,9 +15,12 @@ from ROOT import TChain
 from ROOT import EnableImplicitMT
 from ROOT.std import vector
 
-import logging
-
-logger = logging.getLogger(__name__)
+try:
+    import logging
+    from config.logging_setup_configs import setup_logging
+    logger = setup_logging(logger=logging.getLogger(__name__))
+except ModuleNotFoundError:
+    logger = logging.getLogger(__name__)
 
 
 class RunManager:

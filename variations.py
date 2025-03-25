@@ -6,10 +6,14 @@ from .booking import dataset_from_artusoutput
 from .utils import Selection
 from .utils import Variation
 
-import logging
 import re
 
-logger = logging.getLogger(__name__)
+try:
+    import logging
+    from config.logging_setup_configs import setup_logging
+    logger = setup_logging(logger=logging.getLogger(__name__))
+except ModuleNotFoundError:
+    logger = logging.getLogger(__name__)
 
 
 def get_quantities_from_expression(expression):
