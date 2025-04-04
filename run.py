@@ -72,7 +72,7 @@ class RunManager:
             them out of scope
     """
 
-    def __init__(self, graphs, *, create_histograms=True, create_config=False):
+    def __init__(self, graphs, *, create_histograms=True, create_config=False, replacement_dict=None):
         self.graphs = graphs
         self.tchains = list()
         self.friend_tchains = list()
@@ -81,6 +81,7 @@ class RunManager:
         self.create_config = create_config
         if create_config:
             self.config = NestedDefaultDict()
+            self.replacement_dict = replacement_dict
 
     def _run_multiprocess(self, graph):
         start = time.time()
@@ -317,9 +318,9 @@ class RunManager:
         if self.create_config:
             process, channel_and_sample, variation, variable = name.split("#")
             channel, sample = channel_and_sample.split("-")[0], "-".join(channel_and_sample.split("-")[1:])
-
-            variation = variation.replace(f"_{variable}", "").replace("Era", "2018")
-
+            variation = variation.replace(f"_{variable}", "").replace("Channel", channel)
+            for k, v in self.replacement_dict.items():
+                variation = variation.replace(k, v)
             if process == "data":
                 sample = "data"
             if not weight_expression:
