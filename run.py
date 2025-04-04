@@ -1,6 +1,7 @@
-from multiprocessing import Pool
 import time
 import re
+from collections import defaultdict
+from multiprocessing import Pool
 
 from .utils import Count
 from .utils import Histogram
@@ -21,6 +22,32 @@ try:
     logger = setup_logging(logger=logging.getLogger(__name__))
 except ModuleNotFoundError:
     logger = logging.getLogger(__name__)
+
+
+class NestedDefaultDict(defaultdict):
+    """
+    A nested defaultdict that allows for easy creation of
+    multi-level dictionaries with default values.
+    This class is a subclass of defaultdict and is used to
+    create a nested dictionary structure where each level
+    is also a defaultdict.
+    """
+    def __init__(self, *args, **kwargs) -> None:
+        super(NestedDefaultDict, self).__init__(NestedDefaultDict, *args, **kwargs)
+
+    def __repr__(self) -> str:
+        return repr(dict(self))
+
+    @property
+    def regular(self) -> dict:
+        """
+        Convert the defaultdict to a regular dictionary, useful i.e. when saving as yaml
+        """
+        def convert(d):
+            if isinstance(d, defaultdict):
+                d = {k: convert(v) for k, v in d.items()}
+            return d
+        return convert(self)
 
 
 class RunManager:
@@ -45,10 +72,15 @@ class RunManager:
             them out of scope
     """
 
-    def __init__(self, graphs):
+    def __init__(self, graphs, *, create_histograms=True, create_config=False):
         self.graphs = graphs
         self.tchains = list()
         self.friend_tchains = list()
+
+        self.create_histograms = create_histograms
+        self.create_config = create_config
+        if create_config:
+            self.config = NestedDefaultDict()
 
     def _run_multiprocess(self, graph):
         start = time.time()
@@ -223,9 +255,8 @@ class RunManager:
 
         # Create macro weight string from sub-weights applied
         # (saved earlier as rdf columns)
-        weight_expression = "*".join(
-            ["(" + weight.expression + ")" for weight in rcw.weights]
-        )
+        weight_expression = "*".join(["(" + weight.expression + ")" for weight in rcw.weights])
+        weight_expression = weight_expression.replace("\n", "").replace(" ", "")
 
         # Create macro cut string from sub-cuts applied
         # (saved earlier as rdf columns)
@@ -233,6 +264,7 @@ class RunManager:
         cut_name = cut_name.replace("-", "_")
         cut_name = "cut_" + cut_name
         cut_expression = " && ".join(["(" + cut.expression + ")" for cut in rcw.cuts])
+        cut_expression = cut_expression.replace("\n", "").replace(" ", "")
         if cut_expression:
             if logger.getEffectiveLevel() == logging.DEBUG:
                 for cut in rcw.cuts:
@@ -250,7 +282,7 @@ class RunManager:
         for edge in edges:
             l_edges.push_back(edge)
 
-        if not weight_expression:
+        if not weight_expression and self.create_histograms:
             # If the histogram variable is built from different columns,
             # define a column with the expression first and fill this
             # new column in the histogram.
@@ -265,20 +297,37 @@ class RunManager:
         else:
             weight_name = name.replace("#", "_")
             weight_name = weight_name.replace("-", "_")
-            rcw.frame = rcw.frame.Define(weight_name, weight_expression)
-            logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
-            # If the histogram variable is built from different columns,
-            # define a column with the expression first and fill this
-            # new column in the histogram.
-            if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
-                varname = name.split("#")[-1]
-                rcw.frame = rcw.frame.Define(varname, var)
-                histo = rcw.frame.Histo1D(
-                    (name, name, nbins, l_edges.data()), varname, weight_name
-                )
-            else:
-                histo = rcw.frame.Histo1D(
-                    (name, name, nbins, l_edges.data()), var, weight_name
-                )
+            if self.create_histograms:
+                rcw.frame = rcw.frame.Define(weight_name, weight_expression)
+                logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
+                # If the histogram variable is built from different columns,
+                # define a column with the expression first and fill this
+                # new column in the histogram.
+                if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
+                    varname = name.split("#")[-1]
+                    rcw.frame = rcw.frame.Define(varname, var)
+                    histo = rcw.frame.Histo1D(
+                        (name, name, nbins, l_edges.data()), varname, weight_name
+                    )
+                else:
+                    histo = rcw.frame.Histo1D(
+                        (name, name, nbins, l_edges.data()), var, weight_name
+                    )
 
-        return histo
+        if self.create_config:
+            process, channel_and_sample, variation, variable = name.split("#")
+            channel, sample = channel_and_sample.split("-")[0], "-".join(channel_and_sample.split("-")[1:])
+
+            variation = variation.replace(f"_{variable}", "").replace("Era", "2018")
+
+            if process == "data":
+                sample = "data"
+            if not weight_expression:
+                weight_expression = "(float)1."
+            if not cut_expression:
+                cut_expression = "(float)1."
+            self.config[channel][process][sample][variation]["cut"] = f"{cut_expression}"
+            self.config[channel][process][sample][variation]["weight"] = f"{weight_expression}"
+
+        if self.create_histograms:
+            return histo
