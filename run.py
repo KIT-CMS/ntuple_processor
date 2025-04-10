@@ -72,7 +72,7 @@ class RunManager:
             them out of scope
     """
 
-    def __init__(self, graphs, *, create_histograms=True, create_config=False, replacement_dict=None):
+    def __init__(self, graphs, *, create_histograms=True, create_config=False, config_formatter=None):
         self.graphs = graphs
         self.tchains = list()
         self.friend_tchains = list()
@@ -80,8 +80,8 @@ class RunManager:
         self.create_histograms = create_histograms
         self.create_config = create_config
         if create_config:
+            self.config_formatter = config_formatter
             self.config = NestedDefaultDict()
-            self.replacement_dict = replacement_dict
 
     def _run_multiprocess(self, graph):
         start = time.time()
@@ -266,6 +266,8 @@ class RunManager:
         cut_name = "cut_" + cut_name
         cut_expression = " && ".join(["(" + cut.expression + ")" for cut in rcw.cuts])
         cut_expression = cut_expression.replace("\n", "").replace(" ", "")
+
+        # building the histogram from here
         if cut_expression:
             if logger.getEffectiveLevel() == logging.DEBUG:
                 for cut in rcw.cuts:
@@ -316,19 +318,29 @@ class RunManager:
                     )
 
         if self.create_config:
-            process, channel_and_sample, variation, variable = name.split("#")
-            channel, sample = channel_and_sample.split("-")[0], "-".join(channel_and_sample.split("-")[1:])
-            variation = variation.replace(f"_{variable}", "").replace("Channel", channel)
-            for k, v in self.replacement_dict.items():
-                variation = variation.replace(k, v)
-            if process == "data":
-                sample = "data"
-            if not weight_expression:
-                weight_expression = "(float)1."
-            if not cut_expression:
-                cut_expression = "(float)1."
-            self.config[channel][process][sample][variation]["cut"] = f"{cut_expression}"
-            self.config[channel][process][sample][variation]["weight"] = f"{weight_expression}"
+            if self.config_formatter is not None:
+                self.config_formatter(
+                    config=self.config,
+                    name=name,
+                    var=var,
+                    edges=edges,
+                    nbins=nbins,
+                    weight_expression=weight_expression,
+                    cut_name=cut_name,
+                    cut_expression=cut_expression,
+                )
+            else:  # default formatting
+                process, channel_and_sample, *_ = name.split("#")
+                channel, *_ = channel_and_sample.split("-")
+                self.config[channel][process]["unformatted"]["hist_edges"][var] = NestedDefaultDict(
+                    edges="[" + ", ".join(map(str, edges.tolist())) + "]",  # to not blow up the yaml due to list formatting
+                    nbins=nbins,
+                )
+                self.config[channel][process]["unformatted"]["hist_content"][name] = NestedDefaultDict(
+                    weight_expression=weight_expression,
+                    cut_name=cut_name,
+                    cut_expression=cut_expression,
+                )
 
         if self.create_histograms:
             return histo
