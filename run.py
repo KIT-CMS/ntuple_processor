@@ -15,6 +15,7 @@ from ROOT import TFile
 from ROOT import TChain
 from ROOT import EnableImplicitMT
 from ROOT.std import vector
+from ROOT import RDF
 
 try:
     import logging
@@ -232,6 +233,7 @@ class RunManager:
         # Keep main chain alive
         self.tchains.append(chain)
         rdf = RDataFrame(chain)
+        RDF.Experimental.AddProgressBar(rdf)
         rcw = RDataFrameCutWeight(rdf)
         return rcw
 

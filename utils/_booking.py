@@ -285,8 +285,8 @@ class Histogram(Action):
         return (
             self.name == other.name
             and self.variable == other.variable
-            # and self.edges == other.edges
-            and tuple(self.edges) == tuple(other.edges)
+            and self.edges == other.edges
+            # and tuple(self.edges) == tuple(other.edges)
         )
 
     def __hash__(self):
