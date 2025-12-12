@@ -326,13 +326,7 @@ class Histogram(Action):
         self.edges = list(edges)
 
     def __eq__(self, other):
-        return all(
-            [
-                self.name == other.name,
-                self.variable == other.variable,
-                self.edges == other.edges,
-            ]
-        )
+        return self.name == other.name and self.variable == other.variable and self.edges == other.edges
 
     def __hash__(self):
         return hash(
