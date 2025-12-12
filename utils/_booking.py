@@ -109,16 +109,30 @@ class Ntuple:
 
     def __str__(self):
         if self.tag is None:
-            layout = "({}, {})".format(self.path, self.directory)
+            layout = f"({self.path}, {self.directory})"
         else:
-            layout = "({}, {}, tag = {})".format(self.path, self.directory, self.tag)
+            layout = f"({self.path}, {self.directory}, tag = {self.tag})"
         return layout
 
     def __eq__(self, other):
-        return self.path == other.path and self.directory == other.directory
+        return all(
+            [
+                self.path == other.path,
+                self.directory == other.directory,
+                self.friends == other.friends,
+                self.tag == other.tag,
+            ]
+        )
 
     def __hash__(self):
-        return hash((self.path, self.directory))
+        return hash(
+            (
+                self.path,
+                self.directory,
+                tuple(self.friends) if self.friends is not None else None,
+                self.tag,
+            )
+        )
 
 
 class Dataset:
@@ -138,10 +152,20 @@ class Dataset:
             self.ntuples.append(new_ntuple)
 
     def __eq__(self, other):
-        return self.name == other.name and self.ntuples == other.ntuples
+        return all(
+            [
+                self.name == other.name,
+                self.ntuples == other.ntuples,
+            ]
+        )
 
     def __hash__(self):
-        return hash((self.name, tuple(self.ntuples)))
+        return hash(
+            (
+                self.name,
+                tuple(self.ntuples),
+            )
+        )
 
 
 class Operation:
@@ -150,10 +174,20 @@ class Operation:
         self.name = name
 
     def __eq__(self, other):
-        return self.expression == other.expression and self.name == other.name
+        return all(
+            [
+                self.expression == other.expression,
+                self.name == other.name,
+            ]
+        )
 
     def __hash__(self):
-        return hash((self.expression, self.name))
+        return hash(
+            (
+                self.expression,
+                self.name,
+            )
+        )
 
 
 class Cut(Operation):
@@ -197,16 +231,26 @@ class Selection:
             setter(items)
 
     def __str__(self):
-        deb_str = "Selection-{}\n".format(self.name)
-        deb_str += "Cuts: {} \n".format(self.cuts)
-        deb_str += "Weights: {}\n".format(self.weights)
+        deb_str = f"Selection-{self.name}\n"
+        deb_str += f"Cuts: {self.cuts} \n"
+        deb_str += f"Weights: {self.weights}\n"
         return deb_str
 
     def __eq__(self, other):
-        return self.cuts == other.cuts and self.weights == other.weights
+        return all(
+            [
+                self.cuts == other.cuts,
+                self.weights == other.weights,
+            ]
+        )
 
     def __hash__(self):
-        return hash((tuple(self.cuts), tuple(self.weights)))
+        return hash(
+            (
+                tuple(self.cuts),
+                tuple(self.weights),
+            )
+        )
 
     def split(self):
         minimal_selections = list()
@@ -279,15 +323,22 @@ class Count(Action):
 class Histogram(Action):
     def __init__(self, name, variable, edges):
         Action.__init__(self, name, variable)
-        self.edges = edges
+        self.edges = list(edges)
 
     def __eq__(self, other):
-        return (
-            self.name == other.name
-            and self.variable == other.variable
-            and self.edges == other.edges
-            # and tuple(self.edges) == tuple(other.edges)
+        return all(
+            [
+                self.name == other.name,
+                self.variable == other.variable,
+                self.edges == other.edges,
+            ]
         )
 
     def __hash__(self):
-        return hash((self.name, self.variable, tuple(self.edges)))
+        return hash(
+            (
+                self.name,
+                self.variable,
+                tuple(self.edges),
+            ),
+        )

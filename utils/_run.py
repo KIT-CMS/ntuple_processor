@@ -19,11 +19,19 @@ class RDataFrameCutWeight:
         return self.__str__()
 
     def __eq__(self, other):
-        return (
-            self.frame == other.frame
-            and self.cuts == other.cuts
-            and self.weights == other.weights
+        return all(
+            [
+                self.frame == other.frame,
+                self.cuts == other.cuts,
+                self.weights == other.weights,
+            ]
         )
 
     def __hash__(self):
-        return hash((self.frame, self.cuts, self.weights))
+        return hash(
+            (
+                self.frame,
+                tuple(self.cuts),
+                tuple(self.weights),
+            )
+        )

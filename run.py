@@ -269,56 +269,6 @@ class RunManager:
         cut_expression = " && ".join(["(" + cut.expression + ")" for cut in rcw.cuts])
         cut_expression = cut_expression.replace("\n", "").replace(" ", "")
 
-        # building the histogram from here
-        if cut_expression:
-            if logger.getEffectiveLevel() == logging.DEBUG:
-                for cut in rcw.cuts:
-                    rcw.frame = rcw.frame.Filter(
-                        cut.expression, cut_name + ":" + cut.name
-                    )
-            else:
-                rcw.frame = rcw.frame.Filter(cut_expression)
-            # Check for assignments in cut expression
-            if re.search("(?<!(=|!|<|>))=(?!=)", cut_expression) is not None:
-                logger.warning("Found assignment in cut string. Is this intended?")
-
-        # Create std::vector with the histogram edges
-        l_edges = vector["double"]()
-        for edge in edges:
-            l_edges.push_back(edge)
-
-        if not weight_expression and self.create_histograms:
-            # If the histogram variable is built from different columns,
-            # define a column with the expression first and fill this
-            # new column in the histogram.
-            if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
-                varname = name.split("#")[-1]
-                rcw.frame = rcw.frame.Define(varname, var)
-                logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
-                histo = rcw.frame.Histo1D((name, name, nbins, l_edges.data()), varname)
-            else:
-                logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
-                histo = rcw.frame.Histo1D((name, name, nbins, l_edges.data()), var)
-        else:
-            weight_name = name.replace("#", "_")
-            weight_name = weight_name.replace("-", "_")
-            if self.create_histograms:
-                rcw.frame = rcw.frame.Define(weight_name, weight_expression)
-                logger.debug("%%%%%%%%%% Attaching histogram called {}".format(name))
-                # If the histogram variable is built from different columns,
-                # define a column with the expression first and fill this
-                # new column in the histogram.
-                if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
-                    varname = name.split("#")[-1]
-                    rcw.frame = rcw.frame.Define(varname, var)
-                    histo = rcw.frame.Histo1D(
-                        (name, name, nbins, l_edges.data()), varname, weight_name
-                    )
-                else:
-                    histo = rcw.frame.Histo1D(
-                        (name, name, nbins, l_edges.data()), var, weight_name
-                    )
-
         if self.create_config:
             if self.config_formatter is not None:
                 self.config_formatter(
@@ -344,5 +294,59 @@ class RunManager:
                     cut_expression=cut_expression,
                 )
 
+        histo = None
         if self.create_histograms:
-            return histo
+            if hasattr(rcw, "_cached_filtered_frame"):
+                df = rcw._cached_filtered_frame
+            else:
+                df = rcw.frame
+
+                if logger.getEffectiveLevel() == logging.DEBUG:
+                    logger.debug(f"Booking Histogram: {name}")
+                    logger.debug(f"  > Variable: {var}")
+                    logger.debug(f"  > Total Weight: {weight_expression}")
+
+                # Apply cuts if any
+                if cut_expression:
+                    if re.search("(?<!(=|!|<|>))=(?!=)", cut_expression) is not None:  # Check for assignments in cut expression
+                        logger.warning(f"Found assignment '=' in cut string for {name}. Is this intended? Expr: {cut_expression}")
+
+                    if logger.getEffectiveLevel() == logging.DEBUG:
+                        logger.debug(f"  > Applying {len(rcw.cuts)} cuts sequentially for detailed reporting:")
+                        for cut in rcw.cuts:
+                            logger.debug(f"    - {cut.name}: {cut.expression}")
+                            df = df.Filter(cut.expression, cut_name + ":" + cut.name)
+                    else:
+                        df = df.Filter(cut_expression)
+                rcw._cached_filtered_frame = df
+
+            # Create std::vector with the histogram edges
+            l_edges = vector["double"]()
+            for edge in edges:
+                l_edges.push_back(edge)
+
+            weight_name = ""
+            if weight_expression:
+                weight_name = name.replace("#", "_")
+                weight_name = weight_name.replace("-", "_")
+                if logger.getEffectiveLevel() == logging.DEBUG:
+                    logger.debug(f"  > Defining Weight: {weight_name}")
+                df = df.Define(weight_name, weight_expression)
+
+            plot_var = var
+            if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
+                plot_var = name.split("#")[-1]
+                if logger.getEffectiveLevel() == logging.DEBUG:
+                    logger.debug(f"  > Defining Complex Variable: {plot_var} = {var}")
+                df = df.Define(plot_var, var)
+
+            logger.debug(f"Attaching histogram called {name}")
+
+            model = (name, name, nbins, l_edges.data())
+
+            if weight_name:
+                histo = df.Histo1D(model, plot_var, weight_name)
+            else:
+                histo = df.Histo1D(model, plot_var)
+
+        return histo

@@ -175,6 +175,7 @@ def dataset_from_crownoutput(
                     )
                 )
         return quantities_per_vars
+
     def is_root_file_empty(file_path):
         try:
             # Try to open the ROOT file
@@ -200,7 +201,7 @@ def dataset_from_crownoutput(
         except Exception as e:
             print(f"An error occurred while opening the file: {e}")
             return True
-        
+
     def add_tagged_friends(friends):
         """Tag friends with the name of the different directories
         in the CROWN name scheme, e.g.:
@@ -509,14 +510,22 @@ class Unit:
             return Count(name, action.variable)
 
     def __eq__(self, other):
-        return (
-            self.dataset == other.dataset
-            and self.selections == other.selections
-            and self.actions == other.actions
+        return all(
+            [
+                self.dataset == other.dataset,
+                self.selections == other.selections,
+                self.actions == other.actions,
+            ]
         )
 
     def __hash__(self):
-        return hash((self.dataset, tuple(self.selections), tuple(self.actions)))
+        return hash(
+            (
+                self.dataset,
+                tuple(self.selections),
+                tuple(self.actions),
+            )
+        )
 
 
 class UnitManager:
