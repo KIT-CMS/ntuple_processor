@@ -238,17 +238,18 @@ class RunManager:
         return rcw
 
     def __cuts_and_weights_from_selection(self, rcw, selection):
-        l_cuts = [cut for cut in rcw.cuts]
-        l_weights = [weight for weight in rcw.weights]
+        df = rcw.frame
         for cut in selection.cuts:
-            l_cuts.append(cut)
-        for weight in selection.weights:
-            l_weights.append(weight)
-        l_rcw = RDataFrameCutWeight(rcw.frame, l_cuts, l_weights)
+            df = df.Filter(cut.expression, cut.name)
+
+        l_cuts = [cut for cut in rcw.cuts] + selection.cuts
+        l_weights = [weight for weight in rcw.weights] + selection.weights
+
+        l_rcw = RDataFrameCutWeight(df, l_cuts, l_weights)
         return l_rcw
 
-    def __sum_from_count(self, rdf, count):
-        return rdf.Sum(count.variable)
+    def __sum_from_count(self, rcw, count):
+        return rcw.frame.Sum(count.variable)
 
     def __histo1d_from_histo(self, rcw, histogram):
         name = histogram.name
@@ -296,29 +297,16 @@ class RunManager:
 
         histo = None
         if self.create_histograms:
-            if hasattr(rcw, "_cached_filtered_frame"):
-                df = rcw._cached_filtered_frame
-            else:
-                df = rcw.frame
+            # The frame is already filtered by the parent selections
+            df = rcw.frame
 
-                if logger.getEffectiveLevel() == logging.DEBUG:
-                    logger.debug(f"Booking Histogram: {name}")
-                    logger.debug(f"  > Variable: {var}")
-                    logger.debug(f"  > Total Weight: {weight_expression}")
+            if logger.getEffectiveLevel() == logging.DEBUG:
+                logger.debug(f"Booking Histogram: {name}")
+                logger.debug(f"  > Variable: {var}")
 
-                # Apply cuts if any
-                if cut_expression:
-                    if re.search("(?<!(=|!|<|>))=(?!=)", cut_expression) is not None:  # Check for assignments in cut expression
-                        logger.warning(f"Found assignment '=' in cut string for {name}. Is this intended? Expr: {cut_expression}")
-
-                    if logger.getEffectiveLevel() == logging.DEBUG:
-                        logger.debug(f"  > Applying {len(rcw.cuts)} cuts sequentially for detailed reporting:")
-                        for cut in rcw.cuts:
-                            logger.debug(f"    - {cut.name}: {cut.expression}")
-                            df = df.Filter(cut.expression, cut_name + ":" + cut.name)
-                    else:
-                        df = df.Filter(cut_expression)
-                rcw._cached_filtered_frame = df
+            if cut_expression:
+                if re.search("(?<!(=|!|<|>))=(?!=)", cut_expression) is not None:
+                    logger.warning(f"Found assignment '=' in cut string for {name}. Is this intended? Expr: {cut_expression}")
 
             # Create std::vector with the histogram edges
             l_edges = vector["double"]()
