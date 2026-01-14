@@ -237,12 +237,7 @@ class Selection:
         return deb_str
 
     def __eq__(self, other):
-        return all(
-            [
-                self.cuts == other.cuts,
-                self.weights == other.weights,
-            ]
-        )
+        return self.cuts == other.cuts and self.weights == other.weights
 
     def __hash__(self):
         return hash(

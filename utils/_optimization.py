@@ -22,13 +22,7 @@ class Node:
         return self.name
 
     def __eq__(self, other):
-        return all(
-            [
-                self.name == other.name,
-                self.kind == other.kind,
-                self.unit_block == other.unit_block,
-            ]
-        )
+        return self.name == other.name and self.kind == other.kind and self.unit_block == other.unit_block
 
     def __hash__(self):
         return hash(
