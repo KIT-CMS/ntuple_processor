@@ -322,7 +322,7 @@ class RunManager:
                 df = df.Define(weight_name, weight_expression)
 
             plot_var = var
-            if re.search("(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=)", var):
+            if re.search(r"(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=|\(|\)|\.)", var):
                 plot_var = name.split("#")[-1]
                 if logger.getEffectiveLevel() == logging.DEBUG:
                     logger.debug(f"  > Defining Complex Variable: {plot_var} = {var}")
@@ -337,4 +337,5 @@ class RunManager:
             else:
                 histo = df.Histo1D(model, plot_var)
 
-        return histo
+        if self.create_histograms:
+            return histo
