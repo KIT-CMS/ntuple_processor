@@ -1,24 +1,22 @@
-import time
 import re
+import time
 from collections import defaultdict
 from multiprocessing import Pool
-
-from .utils import Count
-from .utils import Histogram
-from .utils import RDataFrameCutWeight
+from pathlib import Path
 
 from ROOT import gROOT
 
+from .cut_ordering import CutOrderingManager
+from .utils import Count, Histogram, RDataFrameCutWeight
+
 gROOT.SetBatch(True)
-from ROOT import RDataFrame
-from ROOT import TFile
-from ROOT import TChain
-from ROOT import EnableImplicitMT
+from ROOT import RDF, EnableImplicitMT, RDataFrame, TChain, TFile
 from ROOT.std import vector
 from ROOT import RDF
 
 try:
     import logging
+
     from config.logging_setup_configs import setup_logging
     logger = setup_logging(logger=logging.getLogger(__name__))
 except ModuleNotFoundError:
@@ -73,7 +71,17 @@ class RunManager:
             them out of scope
     """
 
-    def __init__(self, graphs, *, create_histograms=True, create_config=False, config_formatter=None):
+    def __init__(
+        self,
+        graphs,
+        *,
+        create_histograms=True,
+        create_config=False,
+        config_formatter=None,
+        cut_order_cache_path=None,
+        discover_cut_ordering=False,
+        enable_cut_ordering=False,
+    ):
         self.graphs = graphs
         self.tchains = list()
         self.friend_tchains = list()
@@ -84,7 +92,31 @@ class RunManager:
             self.config_formatter = config_formatter
             self.config = NestedDefaultDict()
 
+        self._active_dataset_name = None
+        self.cut_order_cache_path = Path(cut_order_cache_path) if cut_order_cache_path is not None else None
+        self.discover_cut_ordering = discover_cut_ordering
+        self.enable_cut_ordering = bool(enable_cut_ordering)
+        self._cut_ordering = CutOrderingManager(
+            cache_path=self.cut_order_cache_path,
+            discover=self.discover_cut_ordering,
+        )
+        self._load_cut_order_cache()
+
+    def _load_cut_order_cache(self):
+        if not (self.enable_cut_ordering or self.discover_cut_ordering):
+            return
+        self._cut_ordering.load_cache()
+
+    def _order_cuts(self, cuts):
+        if not self.enable_cut_ordering:
+            return list(cuts)
+        return self._cut_ordering.order_cuts(
+            cuts,
+            dataset_name=self._active_dataset_name,
+        )
+
     def _run_multiprocess(self, graph):
+        self._active_dataset_name = str(graph.name)
         start = time.time()
         ptrs, diags = self.node_to_root(graph)
         logger.info(
@@ -95,7 +127,8 @@ class RunManager:
         logger.debug(
             "%%%%%%%%%% Ready to produce a subset of {} shapes".format(len(ptrs))
         )
-        if logger.getEffectiveLevel() == logging.DEBUG:
+        reports = []
+        if self.discover_cut_ordering or logger.getEffectiveLevel() == logging.DEBUG:
             reports = [node.Report() for node in diags]
         results = list()
         for ptr in ptrs:
@@ -107,9 +140,16 @@ class RunManager:
             if loops != 1:
                 logger.warning("Event loop run {} times".format(loops))
 
-        if logger.getEffectiveLevel() == logging.DEBUG:
+        if reports and logger.getEffectiveLevel() == logging.DEBUG:
             for report in reports:
                 report.Print()
+
+        cutflow_stats = {}
+        if reports:
+            cutflow_stats = self._cut_ordering.collect_cutflow_report(
+                dataset_name=self._active_dataset_name,
+                reports=reports,
+            )
 
         end = time.time()
         logger.info(
@@ -120,6 +160,9 @@ class RunManager:
         # Reset all friend trees to close the files
         for ch in [*self.tchains, *self.friend_tchains]:
             ch.Reset()
+        self._active_dataset_name = None
+        if self.discover_cut_ordering:
+            return results, cutflow_stats
         return results
 
     def run_locally(self, output, nworkers=1, nthreads=1):
@@ -141,6 +184,7 @@ class RunManager:
             raise TypeError("wrong type for nworkers")
         if nworkers < 1:
             raise ValueError("nworkers has to be larger zero")
+
         logger.info(
             "Start computing locally results of {} graphs using {} workers with {} thread(s) each".format(
                 len(self.graphs), nworkers, nthreads
@@ -152,7 +196,19 @@ class RunManager:
         else:
             with Pool(nworkers) as pool:
                 final_results = list(pool.map(self._run_multiprocess, self.graphs))
+
+        if self.discover_cut_ordering:
+            reduced_results = []
+            for graph_results, graph_cutflow in final_results:
+                reduced_results.append(graph_results)
+                self._cut_ordering.merge_cutflow_stats(graph_cutflow)
+            final_results = reduced_results
+
         final_results = [j for i in final_results for j in i]
+
+        if self.discover_cut_ordering:
+            self._cut_ordering.finalize_discovery()
+
         end = time.time()
         logger.info("Finished computations in {} seconds".format(int(end - start)))
         logger.info(
@@ -239,10 +295,12 @@ class RunManager:
 
     def __cuts_and_weights_from_selection(self, rcw, selection):
         df = rcw.frame
-        for cut in selection.cuts:
+        ordered_selection_cuts = self._order_cuts(selection.cuts)
+
+        for cut in ordered_selection_cuts:
             df = df.Filter(cut.expression, cut.name)
 
-        l_cuts = [cut for cut in rcw.cuts] + selection.cuts
+        l_cuts = [cut for cut in rcw.cuts] + ordered_selection_cuts
         l_weights = [weight for weight in rcw.weights] + selection.weights
 
         l_rcw = RDataFrameCutWeight(df, l_cuts, l_weights)
@@ -267,7 +325,8 @@ class RunManager:
         cut_name = name.replace("#", "_")
         cut_name = cut_name.replace("-", "_")
         cut_name = "cut_" + cut_name
-        cut_expression = " && ".join(["(" + cut.expression + ")" for cut in rcw.cuts])
+        ordered_cuts = self._order_cuts(rcw.cuts)
+        cut_expression = " && ".join(["(" + cut.expression + ")" for cut in ordered_cuts])
         cut_expression = cut_expression.replace("\n", "").replace(" ", "")
 
         if self.create_config:

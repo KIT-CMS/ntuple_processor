@@ -1,30 +1,227 @@
-from .utils import Dataset
-from .utils import Selection
-from .utils import Ntuple
-from .utils import Cut
-from .utils import Weight
-from .utils import Action
-from .utils import Count
-from .utils import Histogram
-from .utils import Variation
-
 from ROOT import gROOT
 
-gROOT.SetBatch(True)
-from ROOT import TFile
+from .utils import (
+    Action,
+    Count,
+    Cut,
+    Dataset,
+    Histogram,
+    Ntuple,
+    Selection,
+    Variation,
+    Weight,
+)
 
+gROOT.SetBatch(True)
+import itertools
 import os
 import re
+import subprocess
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+
 import yaml
-import itertools
+from ROOT import TFile
 from XRootD import client
 
 try:
     import logging
+
     from config.logging_setup_configs import setup_logging
     logger = setup_logging(logger=logging.getLogger(__name__))
 except ModuleNotFoundError:
     logger = logging.getLogger(__name__)
+
+
+_LOCAL_CACHE_WORKERS = 10
+_LOCAL_SUCCESS_FILE = ".success"
+
+
+def _strip_xrootd_prefix(path: str) -> str:
+    if (match := re.match(r"^root://[^/]+(?::\d+)?(/.*)$", path)):
+        path = match.group(1)
+    return re.sub(r"^/+", "/", path)
+
+
+def _to_local_cache_path(path: str) -> str | None:
+    normalized_path = _strip_xrootd_prefix(path)
+    store_prefix = f"/store/user/{os.environ.get('USER')}/"
+
+    if not normalized_path.startswith(store_prefix):
+        return None
+
+    relative_path = normalized_path[len(store_prefix):]
+    return os.path.join("/ceph", os.environ.get('USER'), relative_path)
+
+
+def _cache_file_locally(source_path: str, target_path: str) -> None:
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+    if os.path.exists(target_path):
+        return
+
+    logger.info(f"Caching input file locally: {source_path} -> {target_path}")
+    if source_path.startswith("root://"):
+        command = ["xrdcp", "-f", source_path, target_path]
+    else:
+        command = ["cp", "-f", source_path, target_path]
+
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except FileNotFoundError:
+        logger.fatal(f"Required command '{command[0]}' is not available.")
+        raise
+    except subprocess.CalledProcessError as err:
+        logger.fatal(f"Failed to cache file {source_path}")
+        if err.stderr:
+            logger.fatal(f"stderr: {err.stderr.strip()}")
+        raise
+
+
+def _get_ntuple_entries(path: str) -> int | None:
+    root_file = TFile.Open(path)
+    if not root_file or root_file.IsZombie():
+        logger.warning(f"Failed to open file for event check: {path}")
+        return None
+
+    ntuple = root_file.Get("ntuple")
+    if ntuple is None:
+        logger.warning(f"No 'ntuple' tree found for event check: {path}")
+        root_file.Close()
+        return None
+
+    entries = int(ntuple.GetEntries())
+    root_file.Close()
+
+    return entries
+
+
+def _is_xsec_friend_path(path: str) -> bool:
+    return "/CROWNFriends/xsec/" in _strip_xrootd_prefix(path)
+
+
+def _write_success_file(folder: str) -> None:
+    with open(os.path.join(folder, _LOCAL_SUCCESS_FILE), "w"):
+        pass
+
+
+def _validate_or_cache_file(job: tuple) -> str:
+    source_path, target_path, check_events = job
+    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+    had_local_file = os.path.exists(target_path)
+    if not os.path.exists(target_path):
+        _cache_file_locally(source_path, target_path)
+
+    if not check_events:
+        return "skipped" if had_local_file else "downloaded"
+
+    remote_events = _get_ntuple_entries(source_path)
+    local_events = _get_ntuple_entries(target_path)
+
+    if remote_events is None:
+        raise RuntimeError(f"Could not determine remote event count for {source_path}")
+
+    if local_events is None or remote_events != local_events:
+        logger.warning(f"Event mismatch for {source_path} (remote: {remote_events}, local: {local_events}) - redownloading")
+        try:
+            os.remove(target_path)
+        except FileNotFoundError:
+            pass
+        _cache_file_locally(source_path, target_path)
+
+        local_events_after = _get_ntuple_entries(target_path)
+        if local_events_after is None or local_events_after != remote_events:
+            raise RuntimeError(f"Event mismatch persists after redownload for {source_path} (remote: {remote_events}, local: {local_events_after})")
+        return "redownloaded"
+
+    if had_local_file:
+        return "verified"
+
+    return "downloaded+verified"
+
+
+def _yield_completed_jobs(executor, jobs, worker_fn, max_buffer_size):
+    job_iter, inflight = iter(jobs), {}
+    while True:
+        while len(inflight) < max_buffer_size:
+            try:
+                job = next(job_iter)
+            except StopIteration:
+                break
+            future = executor.submit(worker_fn, job)
+            inflight[future] = job
+
+        if len(inflight) == 0:
+            return
+
+        completed, _ = wait(set(inflight.keys()), return_when=FIRST_COMPLETED)
+        for future in completed:
+            job = inflight.pop(future)
+            yield job, future
+
+
+def _resolve_input_paths(paths, locally, local_cache_workers=_LOCAL_CACHE_WORKERS):
+    unique_paths = list(dict.fromkeys(paths))
+
+    if not locally:
+        return {path: path for path in unique_paths}
+
+    if not isinstance(local_cache_workers, int):
+        raise TypeError("wrong type for local_cache_workers")
+    if local_cache_workers < 1:
+        raise ValueError("local_cache_workers has to be larger zero")
+
+    resolved_paths, files_per_folder = {}, {}
+    for path in unique_paths:
+        local_path = _to_local_cache_path(path)
+        if local_path is None:
+            logger.warning(f"Could not map path '{path}' to /ceph/$USER cache, reading from source.")
+            resolved_paths[path] = path
+            continue
+
+        resolved_paths[path] = local_path
+
+        folder = os.path.dirname(local_path)
+        if folder not in files_per_folder:
+            files_per_folder[folder] = []
+        files_per_folder[folder].append((path, local_path))
+
+    for folder, folder_files in files_per_folder.items():
+        success_file = os.path.join(folder, _LOCAL_SUCCESS_FILE)
+        is_xsec_folder = all(_is_xsec_friend_path(source) for source, _ in folder_files)
+
+        if os.path.exists(success_file):
+            logger.info(f"Skipping folder with success marker: {folder}")
+            continue
+
+        check_events = not is_xsec_folder
+        jobs = [(source_path, target_path, check_events) for source_path, target_path in folder_files]
+        total = len(jobs)
+
+        logger.info(f"Processing cache folder {folder} with {total} file(s) using {local_cache_workers} worker(s)")
+
+        processed = 0
+        with ThreadPoolExecutor(max_workers=local_cache_workers) as executor:
+            for job, future in _yield_completed_jobs(
+                executor,
+                jobs,
+                _validate_or_cache_file,
+                max_buffer_size=local_cache_workers,
+            ):
+                source_path, _, _ = job
+                try:
+                    status = future.result()
+                except Exception:
+                    logger.fatal(f"Failed to cache file {source_path}")
+                    raise
+
+                processed += 1
+                logger.info(f"[{processed}/{total}]: {status} - {source_path}")
+
+        _write_success_file(folder)
+        logger.info(f"Wrote success marker: {success_file}")
+
+    return resolved_paths
 
 
 def dataset_from_artusoutput(
@@ -130,6 +327,8 @@ def dataset_from_crownoutput(
     validate_samples=False,
     validation_tag="v1",
     xrootd=False,
+    locally=False,
+    local_cache_workers=_LOCAL_CACHE_WORKERS,
 ):
     """Create a Dataset object from a list containing the names
     of the ROOT files (e.g. [root_file1, root_file2, (...)]):
@@ -217,7 +416,7 @@ def dataset_from_crownoutput(
                 idx = path_split_list.index("CROWNFriends")
             elif "CROWNMultiFriends" in friend.path:
                 idx = path_split_list.index("CROWNMultiFriends")
-            friend_tag = path_split_list[idx+1]
+            friend_tag = path_split_list[idx + 1]
             if friend.tag is None:
                 friend.tag = friend_tag
         return friends
@@ -296,7 +495,7 @@ def dataset_from_crownoutput(
                 for g in listing:
                     # os.path.join omits parts with colons as it thinks they are drives,
                     # use default join instead
-                    filepath = "/".join([fsname,os.path.join(files_base_directory, era, f, channel, g.name),])
+                    filepath = "/".join([fsname, os.path.join(files_base_directory, era, f, channel, g.name),])
                     if filepath.endswith(".root"):
                         root_files.append((filepath, f))
             except TypeError:
@@ -332,9 +531,8 @@ def dataset_from_crownoutput(
             )
         )
         validation_dict = {"varset": set(), "friends_varset": set(), "files": {}}
+    tdf_tree, dataset_entries, files_to_cache = "ntuple", [], []
     for root_file, file_name in root_files:
-        tdf_tree = "ntuple"
-        friends = []
         friend_paths = []
         for friends_base_directory in friends_base_directories:
             friend_base_name = os.path.basename(root_file)
@@ -359,14 +557,42 @@ def dataset_from_crownoutput(
         if not read_from_database:
             populate_val_database(root_file, validation_dict, friend_paths)
         if root_file not in validation_dict["files"]:
-            raise ValueError(
-                "File {} not found in validation results.".format(root_file)
-            )
-        if not validation_dict["files"][root_file]["friend_is_empty"]:
+            raise ValueError(f"File {root_file} not found in validation results.")
+
+        use_friends = not validation_dict["files"][root_file]["friend_is_empty"]
+        use_root = not validation_dict["files"][root_file]["is_empty"]
+
+        dataset_entries.append((root_file, friend_paths, use_root, use_friends))
+        if locally:
+            if use_root:
+                files_to_cache.append(root_file)
+            if use_friends:
+                files_to_cache.extend(friend_paths)
+
+    resolved_paths = _resolve_input_paths(
+        files_to_cache,
+        locally=locally,
+        local_cache_workers=local_cache_workers,
+    )
+
+    for root_file, friend_paths, use_root, use_friends in dataset_entries:
+        friends = []
+        if use_friends:
             for friend_path in friend_paths:
-                friends.append(Ntuple(friend_path, tdf_tree))
-        if not validation_dict["files"][root_file]["is_empty"]:
-            ntuples.append(Ntuple(root_file, tdf_tree, add_tagged_friends(friends)))
+                friends.append(
+                    Ntuple(
+                        resolved_paths.get(friend_path, friend_path),
+                        tdf_tree,
+                    )
+                )
+        if use_root:
+            ntuples.append(
+                Ntuple(
+                    resolved_paths.get(root_file, root_file),
+                    tdf_tree,
+                    add_tagged_friends(friends),
+                )
+            )
     # Perform check of number of files
     if len(validation_dict["files"].keys()) > len(root_files):
         miss_files = set(validation_dict["files"].keys()).difference(
@@ -407,7 +633,7 @@ def dataset_from_crownoutput(
         )
     # Write the created database
     if not read_from_database:
-        db_path = os.path.join("validation_database",validation_tag)
+        db_path = os.path.join("validation_database", validation_tag)
         if not os.path.exists(db_path):
             os.makedirs(db_path)
         logger.info(
