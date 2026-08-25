@@ -130,6 +130,7 @@ def dataset_from_crownoutput(
     validate_samples=False,
     validation_tag="v1",
     xrootd=False,
+    validation_dataset_name=None,
 ):
     """Create a Dataset object from a list containing the names
     of the ROOT files (e.g. [root_file1, root_file2, (...)]):
@@ -287,23 +288,25 @@ def dataset_from_crownoutput(
     if xrootd:
         fsname = "root://cmsdcache-kit-disk.gridka.de:1094"
         xrdclient = client.FileSystem(fsname)
+        dcache_directory_path = files_base_directory.split("root://cmsdcache-kit-disk.gridka.de/")[-1]
         for f in file_names:
             status, listing = xrdclient.dirlist(
-                os.path.join("", files_base_directory, era, f, channel)
+                os.path.join("", dcache_directory_path, era, f, channel)
             )
             try:
                 for g in listing:
                     # os.path.join omits parts with colons as it thinks they are drives,
                     # use default join instead
-                    filepath = "/".join([fsname,os.path.join(files_base_directory, era, f, channel, g.name),])
+                    filepath = "/".join([fsname,os.path.join(dcache_directory_path, era, f, channel, g.name),])
                     if filepath.endswith(".root"):
                         root_files.append((filepath, f))
             except TypeError:
                 logger.error(
                     "Could not read file list from directory {}".format(
-                        os.path.join(files_base_directory, era, f, channel)
+                        os.path.join(dcache_directory_path, era, f, channel)
                     )
                 )
+                breakpoint()
                 raise TypeError
     else:
         for f in file_names:
@@ -314,20 +317,22 @@ def dataset_from_crownoutput(
                     root_files.append(filepath)
     ntuples = []
     read_from_database = False
+    if validation_dataset_name is None:
+        validation_dataset_name = dataset_name
     db_path = os.path.join("validation_database",validation_tag)
-    if os.path.exists(f"{db_path}/{era}_{channel}_{dataset_name}.yaml"):
+    if os.path.exists(f"{db_path}/{era}_{channel}_{validation_dataset_name}.yaml"):
         logger.info(
             "Reading validation information for dataset {} - {} - {}".format(
-                era, channel, dataset_name
+                era, channel, validation_dataset_name
             )
         )
-        with open(f"{db_path}/{era}_{channel}_{dataset_name}.yaml") as fi:
+        with open(f"{db_path}/{era}_{channel}_{validation_dataset_name}.yaml") as fi:
             validation_dict = yaml.safe_load(fi)
         read_from_database = True
     else:
         logger.info(
             "Running ntuple validation for {} - {} - {}".format(
-                era, channel, dataset_name
+                era, channel, validation_dataset_name
             )
         )
         validation_dict = {"varset": set(), "friends_varset": set(), "files": {}}
@@ -338,11 +343,12 @@ def dataset_from_crownoutput(
         for friends_base_directory in friends_base_directories:
             friend_base_name = os.path.basename(root_file)
             if xrootd:
+                dcache_directory_path = friends_base_directory.split("root://cmsdcache-kit-disk.gridka.de/")[-1]
                 friend_path = "/".join(
                     [
                         fsname,
                         os.path.join(
-                            friends_base_directory,
+                            dcache_directory_path,
                             era,
                             file_name,
                             channel,
@@ -411,11 +417,11 @@ def dataset_from_crownoutput(
             os.makedirs(db_path)
         logger.info(
             "Writing validation info for {e} - {c} - {dn} to {db_path}/{e}_{c}_{dn}.yaml".format(
-                e=era, c=channel, dn=dataset_name, db_path=db_path
+                e=era, c=channel, dn=validation_dataset_name, db_path=db_path
             )
         )
         with open(
-            f"{db_path}/{era}_{channel}_{dataset_name}.yaml", "w"
+            f"{db_path}/{era}_{channel}_{validation_dataset_name}.yaml", "w"
         ) as outfi:
             yaml.safe_dump(validation_dict, outfi, sort_keys=True, indent=4)
     return Dataset(
