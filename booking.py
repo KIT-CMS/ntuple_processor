@@ -17,6 +17,8 @@ import itertools
 import os
 import re
 import subprocess
+import time
+import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 import yaml
@@ -33,6 +35,10 @@ except ModuleNotFoundError:
 
 
 _LOCAL_CACHE_WORKERS = 10
+_DIRLIST_MAX_ATTEMPTS = 5
+_DIRLIST_RETRY_DELAY_S = 3
+_FILE_OPEN_MAX_ATTEMPTS = 5
+_FILE_OPEN_RETRY_DELAY_S = 3
 _LOCAL_SUCCESS_FILE = ".success"
 
 
@@ -95,8 +101,11 @@ def _get_ntuple_entries(path: str) -> int | None:
     return entries
 
 
+_XSEC_FRIEND_RE = re.compile(r"/CROWN(?:Multi)?Friends?/xsec/")
+
+
 def _is_xsec_friend_path(path: str) -> bool:
-    return "/CROWNFriends/xsec/" in _strip_xrootd_prefix(path)
+    return bool(_XSEC_FRIEND_RE.search(_strip_xrootd_prefix(path)))
 
 
 def _write_success_file(folder: str) -> None:
@@ -326,6 +335,8 @@ def dataset_from_crownoutput(
     friends_base_directories=None,
     validate_samples=False,
     validation_tag="v1",
+    validation_db_root="validation_database",
+    flat_layout=False,
     xrootd=False,
     locally=False,
     local_cache_workers=_LOCAL_CACHE_WORKERS,
@@ -357,65 +368,145 @@ def dataset_from_crownoutput(
         dataset (Dataset): Dataset object containing TTrees
     """
 
-    def get_quantities_per_variation(root_file):
+    def get_quantities_per_variation(root_file, friend_paths=None):
+        """Shift name -> list of quantities that carry a `<quantity>__<shift>`
+        leaf, scanning the main ntuple AND every attached friend tree.
+
+        Friends matter here as much as the main ntuple does: CROWN can ship a
+        quantity's shifted variants in a friend tree instead of the main
+        ntuple (e.g. selection_friends.py's `presel_mask__<shift>` branches,
+        which have no nominal-tree counterpart at all for productions that
+        moved the selection masks out of the main ntuple). Scanning the main
+        ntuple only would silently make `ReplaceVariable` treat every such
+        quantity as unshifted -- it would just never find it in the map, no
+        error, no warning -- so any friend-only shifted quantity would keep
+        reading its nominal branch under every systematic variation.
+        """
         quantities_per_vars = {}
-        quantities_with_variations = root_file.Get("ntuple").GetListOfLeaves()
-        for qwv in quantities_with_variations:
-            qwv_name = qwv.GetName()
-            if "__" in qwv_name:
-                quantity, var = qwv_name.split("__")
-                if var not in quantities_per_vars.keys():
-                    quantities_per_vars[var] = []
-                quantities_per_vars[var].append(quantity)
-            if "-" in qwv_name:
-                logger.warning(
-                    "Found a '-' in quantity name {} - This can result in unwanted behaviour for systematic shifts".format(
-                        qwv_name
+
+        def _scan(leaves):
+            for qwv in leaves:
+                qwv_name = qwv.GetName()
+                if "__" in qwv_name:
+                    quantity, var = qwv_name.split("__")
+                    if var not in quantities_per_vars.keys():
+                        quantities_per_vars[var] = []
+                    if quantity not in quantities_per_vars[var]:
+                        quantities_per_vars[var].append(quantity)
+                if "-" in qwv_name:
+                    logger.warning(
+                        "Found a '-' in quantity name {} - This can result in unwanted behaviour for systematic shifts".format(
+                            qwv_name
+                        )
                     )
-                )
+
+        _scan(root_file.Get("ntuple").GetListOfLeaves())
+        for friend_path in friend_paths or []:
+            if is_root_file_empty(friend_path):
+                continue
+            friend_file = TFile.Open(friend_path)
+            friend_tree = friend_file.Get("ntuple")
+            if friend_tree:
+                _scan(friend_tree.GetListOfLeaves())
+            friend_file.Close()
         return quantities_per_vars
 
     def is_root_file_empty(file_path):
-        try:
-            # Try to open the ROOT file
-            root_file = TFile.Open(file_path)
+        """
+        True iff file_path is a confirmed-empty CROWN output (opens fine,
+        but carries no "ntuple" key -- CROWN's own marker for a skim with
+        zero passing events) -- never for a file that simply failed to open.
 
-            # Check if the file was opened successfully
-            if not root_file or root_file.IsZombie():
-                print(f"Failed to open file '{file_path}' or it is a zombie.")
-                return True
+        Those two cases used to collapse into the same `return True`: a
+        zombie TFile, an exception during TFile.Open (e.g. the transient
+        xrootd/redirector "[3011] No such file" errors that show up in bursts
+        whenever many condor jobs hit GridKA at once -- see the dirlist()
+        retry loop above, added for exactly that failure mode) and a
+        genuinely empty file were all indistinguishable to the caller. Since
+        this same function also decides `friend_is_empty` (see
+        populate_val_database() below), a single transient blip on ONE
+        friend file silently dropped that friend from that one file's
+        Ntuple -- no warning, no error -- while every other file in the same
+        dataset kept it. Downstream, that produced a dataset whose chained
+        friend (e.g. the SR_mask selection-mask friend) is only PARTLY
+        attached, which doesn't fail until much later, as a confusing
+        "use of undeclared identifier 'SR_mask'" RDataFrame JIT-compilation
+        crash with no link back to the actual cause.
 
-            # Check if the file contains any keys
-            if root_file.GetNkeys() == 0:
-                print(f"File '{file_path}' contains no keys.")
-                root_file.Close()
-                return True
-            if "ntuple" not in [x.GetTitle() for x in root_file.GetListOfKeys()]:
-                return True
+        Retries transient open failures like dirlist() does, then raises
+        instead of silently reporting "empty" -- a real access failure
+        should stop the run loudly, not quietly degrade it.
+        """
+        last_exc = None
+        for attempt in range(1, _FILE_OPEN_MAX_ATTEMPTS + 1):
+            try:
+                root_file = TFile.Open(file_path)
+            except Exception as e:
+                root_file, last_exc = None, e
+            else:
+                last_exc = None
+                if root_file and not root_file.IsZombie():
+                    break
+                if root_file:
+                    root_file.Close()
+                root_file = None
+            if attempt < _FILE_OPEN_MAX_ATTEMPTS:
+                logger.warning(
+                    f"Could not open {file_path!r} (attempt {attempt}/"
+                    f"{_FILE_OPEN_MAX_ATTEMPTS}){f': {last_exc}' if last_exc else ' (zombie file)'}. "
+                    f"Retrying..."
+                )
+                time.sleep(_FILE_OPEN_RETRY_DELAY_S)
+        else:
+            raise RuntimeError(
+                f"Could not open {file_path!r} after {_FILE_OPEN_MAX_ATTEMPTS} attempt(s)"
+                f"{f': {last_exc}' if last_exc else ' (zombie file)'}. Refusing to silently "
+                f"treat this as an empty/absent file -- if it's genuinely missing, remove it "
+                f"from the input; if this is a transient xrootd/redirector error, re-run."
+            )
 
-            # If we reach here, the file is not empty
+        # Check if the file contains any keys
+        if root_file.GetNkeys() == 0:
+            print(f"File '{file_path}' contains no keys.")
             root_file.Close()
-            return False
-
-        except Exception as e:
-            print(f"An error occurred while opening the file: {e}")
             return True
+        if "ntuple" not in [x.GetTitle() for x in root_file.GetListOfKeys()]:
+            root_file.Close()
+            return True
+
+        # If we reach here, the file is not empty
+        root_file.Close()
+        return False
 
     def add_tagged_friends(friends):
         """Tag friends with the name of the different directories
         in the CROWN name scheme, e.g.:
         /common_path/CROWNFriends/fastmtt/ntuple -> tag: fastmtt
         /common_path/CROWNMultiFriends/NNclassification/ntuple -> tag: NNclassification
-        Since using CROWN two folders containing friends could be present, `CROWNFriends`
-        and `CROWNMultiFriends`, both have to be checked. The next folder in the hierarchy
-        gives us the friend tag independent of friend or multifriend.
+        /common_path/CROWNFriend/selection_260805_v3/ntuple -> tag: selection_260805_v3
+        CROWN productions have used `CROWNFriends` (plural, older) and
+        `CROWNMultiFriends`, and this KingMaker tag's own `CROWNFriend`
+        (singular) -- all three have to be checked (a single-word `in`/exact
+        match against just "CROWNFriends" silently missed "CROWNFriend": since
+        the pluralised name contains the singular one, only checking equality
+        against the wrong one raised UnboundLocalError on `idx` further down
+        for every attached friend under a `CROWNFriend/` production). The next
+        folder in the hierarchy gives us the friend tag independent of which
+        scheme produced it.
         """
+        _marker_re = re.compile(r"^CROWN(?:Multi)?Friends?$")
         for friend in friends:
             path_split_list = friend.path.split("/")
-            if "CROWNFriends" in friend.path:
-                idx = path_split_list.index("CROWNFriends")
-            elif "CROWNMultiFriends" in friend.path:
-                idx = path_split_list.index("CROWNMultiFriends")
+            idx = next(
+                (i for i, segment in enumerate(path_split_list) if _marker_re.match(segment)),
+                None,
+            )
+            if idx is None:
+                logger.warning(
+                    f"add_tagged_friends: no CROWNFriend(s)/CROWNMultiFriends segment found "
+                    f"in friend path {friend.path!r} -- leaving its tag unset"
+                )
+                continue
             friend_tag = path_split_list[idx + 1]
             if friend.tag is None:
                 friend.tag = friend_tag
@@ -440,11 +531,14 @@ def dataset_from_crownoutput(
         if not is_empty:
             root_file = TFile.Open(root_file_path)
             quantities = extract_quantities(root_file)
-        if "quantities_per_vars" in validation_dict or is_empty:
+        if is_empty:
+            if "quantities_per_vars" not in validation_dict:
+                validation_dict["quantities_per_vars"] = {}
+        elif "quantities_per_vars" in validation_dict:
             pass
         else:
             validation_dict["quantities_per_vars"] = get_quantities_per_variation(
-                root_file
+                root_file, friends
             )
             root_file.Close()
         # Do the same for the friend trees
@@ -483,28 +577,69 @@ def dataset_from_crownoutput(
     # files_base_directory: ntuple/era
     # friends_base_directory: friends/friend_type/era
     root_files = []
+    fsname = "root://cmsdcache-kit-disk.gridka.de:1094"
+    # Preselection output layout: exactly ONE file per dataset key, flat per
+    # era/channel -- {base}/{era}/{channel}/{name}.root -- as written by
+    # shapes/preselect.py (and, identically, by TauFakeFactors'
+    # preselection.py, whose naming convention it reuses via
+    # helper.functions.get_output_name). This is a *different* layout from
+    # CROWN's directory-per-sample {base}/{era}/{name}/{channel}/*.root
+    # handled below, hence the separate branch rather than a glob that tries
+    # to cover both: there is nothing to list here, the filename is fully
+    # determined by the dataset key.
+    if flat_layout:
+        for f in file_names:
+            filepath = os.path.join(files_base_directory, era, channel, f"{f}.root")
+            if xrootd:
+                filepath = "/".join([fsname, filepath])
+            elif not os.path.exists(filepath):
+                raise FileNotFoundError(
+                    f"Preselected ntuple not found: {filepath}\n"
+                    f"Expected one file per dataset key in the flat preselection layout "
+                    f"({{dir}}/{{era}}/{{channel}}/{{key}}.root). Did the preselection step "
+                    f"(run.py PRESEL) run for {era}/{channel}?"
+                )
+            root_files.append((filepath, f))
     # Set up reading of file system via xrootd bindings
-    if xrootd:
-        fsname = "root://cmsdcache-kit-disk.gridka.de:1094"
+    elif xrootd:
         xrdclient = client.FileSystem(fsname)
         for f in file_names:
-            status, listing = xrdclient.dirlist(
-                os.path.join("", files_base_directory, era, f, channel)
-            )
-            try:
-                for g in listing:
-                    # os.path.join omits parts with colons as it thinks they are drives,
-                    # use default join instead
-                    filepath = "/".join([fsname, os.path.join(files_base_directory, era, f, channel, g.name),])
-                    if filepath.endswith(".root"):
-                        root_files.append((filepath, f))
-            except TypeError:
-                logger.error(
-                    "Could not read file list from directory {}".format(
-                        os.path.join(files_base_directory, era, f, channel)
-                    )
+            remote_dir = os.path.join("", files_base_directory, era, f, channel)
+            # `status` used to be discarded entirely: on a failed dirlist()
+            # (redirector timeout/overload -- much more likely when many
+            # condor jobs hit the same xrootd endpoint concurrently than in
+            # an isolated local run) some XRootD binding failure modes return
+            # an EMPTY listing rather than None, so the old code below simply
+            # iterated zero times and silently moved on with NO files (hence
+            # no events) for that dataset key `f` -- no error, no crash, just
+            # a quietly under-filled sample. (A None listing did raise
+            # TypeError and crash loudly, so only the empty-listing failure
+            # mode was silent -- but that's exactly the common one.) Now:
+            # retry transient failures a few times, then fail loudly instead
+            # of ever proceeding on an unchecked-bad status.
+            status, listing = xrdclient.dirlist(remote_dir)
+            attempts = 1
+            while not status.ok and attempts < _DIRLIST_MAX_ATTEMPTS:
+                logger.warning(
+                    f"dirlist failed for {remote_dir} (attempt {attempts}/"
+                    f"{_DIRLIST_MAX_ATTEMPTS}): {status.message}. Retrying..."
                 )
-                raise TypeError
+                time.sleep(_DIRLIST_RETRY_DELAY_S)
+                status, listing = xrdclient.dirlist(remote_dir)
+                attempts += 1
+            if not status.ok:
+                raise RuntimeError(
+                    f"Could not list xrootd directory {remote_dir} after "
+                    f"{attempts} attempt(s): {status.message}. Refusing to "
+                    f"silently continue with an incomplete/empty file list "
+                    f"for dataset {f!r} (era={era}, channel={channel})."
+                )
+            for g in listing:
+                # os.path.join omits parts with colons as it thinks they are drives,
+                # use default join instead
+                filepath = "/".join([fsname, os.path.join(files_base_directory, era, f, channel, g.name),])
+                if filepath.endswith(".root"):
+                    root_files.append((filepath, f))
     else:
         for f in file_names:
             for g in os.listdir(os.path.join(files_base_directory, era, f, channel)):
@@ -513,46 +648,38 @@ def dataset_from_crownoutput(
                 if filepath[0].endswith(".root"):
                     root_files.append(filepath)
     ntuples = []
+    # Validation is always redone from scratch, never read back from a
+    # previous run's cached {era}_{channel}_{dataset_name}.yaml -- the cache
+    # key is only (validation_tag, era, channel, dataset_name), with no
+    # dependence on which physical files actually back that dataset, so
+    # swapping a dataset's underlying sample composition (e.g. DY
+    # amcatnlo -> powheg) under the same validation_tag/dataset_name silently
+    # reused stale validation results from the old files instead of
+    # re-validating the new ones. Still written below for inspection, just
+    # never read back.
     read_from_database = False
-    db_path = os.path.join("validation_database",validation_tag)
-    if os.path.exists(f"{db_path}/{era}_{channel}_{dataset_name}.yaml"):
-        logger.info(
-            "Reading validation information for dataset {} - {} - {}".format(
-                era, channel, dataset_name
-            )
+    logger.info(
+        "Running ntuple validation for {} - {} - {}".format(
+            era, channel, dataset_name
         )
-        with open(f"{db_path}/{era}_{channel}_{dataset_name}.yaml") as fi:
-            validation_dict = yaml.safe_load(fi)
-        read_from_database = True
-    else:
-        logger.info(
-            "Running ntuple validation for {} - {} - {}".format(
-                era, channel, dataset_name
-            )
-        )
-        validation_dict = {"varset": set(), "friends_varset": set(), "files": {}}
+    )
+    validation_dict = {"varset": set(), "friends_varset": set(), "files": {}}
     tdf_tree, dataset_entries, files_to_cache = "ntuple", [], []
     for root_file, file_name in root_files:
         friend_paths = []
         for friends_base_directory in friends_base_directories:
             friend_base_name = os.path.basename(root_file)
+            # Mirror whichever layout the nominal file above came from.
+            if flat_layout:
+                friend_rel = os.path.join(era, channel, friend_base_name)
+            else:
+                friend_rel = os.path.join(era, file_name, channel, friend_base_name)
             if xrootd:
                 friend_path = "/".join(
-                    [
-                        fsname,
-                        os.path.join(
-                            friends_base_directory,
-                            era,
-                            file_name,
-                            channel,
-                            friend_base_name,
-                        ),
-                    ]
+                    [fsname, os.path.join(friends_base_directory, friend_rel)]
                 )
             else:
-                friend_path = os.path.join(
-                    friends_base_directory, era, file_name, channel, friend_base_name
-                )
+                friend_path = os.path.join(friends_base_directory, friend_rel)
             friend_paths.append(friend_path)
         if not read_from_database:
             populate_val_database(root_file, validation_dict, friend_paths)
@@ -633,18 +760,38 @@ def dataset_from_crownoutput(
         )
     # Write the created database
     if not read_from_database:
-        db_path = os.path.join("validation_database", validation_tag)
-        if not os.path.exists(db_path):
-            os.makedirs(db_path)
+        db_path = os.path.join(validation_db_root, validation_tag)
+        os.makedirs(db_path, exist_ok=True)
         logger.info(
             "Writing validation info for {e} - {c} - {dn} to {db_path}/{e}_{c}_{dn}.yaml".format(
                 e=era, c=channel, dn=dataset_name, db_path=db_path
             )
         )
-        with open(
-            f"{db_path}/{era}_{channel}_{dataset_name}.yaml", "w"
-        ) as outfi:
+        final_path = f"{db_path}/{era}_{channel}_{dataset_name}.yaml"
+        # Write to a per-process temp file first, then atomically rename onto
+        # final_path -- open(final_path, "w") directly would truncate it to 0
+        # bytes immediately, so a process killed/crashed between that open()
+        # and yaml.safe_dump() finishing (condor eviction, an unrelated fatal
+        # error elsewhere in the same run, OOM-kill, ...) leaves a permanently
+        # empty cache file behind. That file then makes every subsequent run
+        # crash on read (yaml.safe_load returns None for an empty file --
+        # see the read side above) instead of just re-validating, until
+        # someone notices and deletes it by hand. os.replace() is atomic on
+        # the same filesystem (db_path/tmp_path share one), so a reader never
+        # observes a partially-written file.
+        # os.getpid() alone is not unique enough: with validation now always
+        # redone (never read back from cache -- see the read side above),
+        # every call writes here, including multiple concurrent calls for the
+        # SAME dataset (one per systematic variation) from multiple THREADS
+        # of the same process, which all share one pid -- two such calls
+        # racing on an identical tmp_path let one os.replace() consume the
+        # file out from under the other, which then hits FileNotFoundError
+        # trying to rename a tmp_path that's already gone. uuid4 is unique
+        # regardless of process/thread identity.
+        tmp_path = f"{final_path}.tmp.{os.getpid()}.{uuid.uuid4().hex}"
+        with open(tmp_path, "w") as outfi:
             yaml.safe_dump(validation_dict, outfi, sort_keys=True, indent=4)
+        os.replace(tmp_path, final_path)
     return Dataset(
         dataset_name,
         ntuples,
@@ -768,10 +915,29 @@ class UnitManager:
 
     booked_units = []
 
-    def book(self, units, variations=None, enable_check=True):
-        for unit in units:
-            if unit not in self.booked_units:
-                self.booked_units.append(unit)
+    def book(self, units, variations=None, enable_check=True, register_raw=True):
+        # register_raw=False: skip registering `units` themselves under
+        # their own (pre-variation) action name -- only the variation-created
+        # copies below get added. Needed for callers whose `units` are
+        # already a non-nominal-region selection (e.g. produce_shapes.py's
+        # same-sign QCD control-region booking, whose `units_qcd_ss` are
+        # SR_mask_ss-selected) that only want a distinctly-named copy (via a
+        # Variation, e.g. "same_sign") written out -- NOT also a copy under
+        # the raw unit's own action name, which defaults to "Nominal"
+        # (ntuple_processor/booking.py::Unit.__set_new_action) exactly like
+        # every OS/signal-region unit's, since Selection objects here are
+        # named after the channel alone, not the region. Registering both
+        # used to silently collide: two Unit objects (one truly OS-selected,
+        # one same-sign-selected) can produce byte-identical
+        # "...#Nominal#..." histogram names, and whichever was processed
+        # last during RunManager.run_locally() silently won on disk -- with
+        # --skip-systematic-variations (the only path that ever ran, since
+        # the real OS "Nominal" booking used to only happen as a side effect
+        # of systematic-variation calls), the same-sign one always won.
+        if register_raw:
+            for unit in units:
+                if unit not in self.booked_units:
+                    self.booked_units.append(unit)
         if variations:
             for variation in variations:
                 logger.debug("Applying variation {}".format(variation))

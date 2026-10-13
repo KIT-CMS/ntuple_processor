@@ -103,8 +103,7 @@ class Ntuple:
     def __init__(self, path, directory, friends=None, tag=None):
         self.path = path
         self.directory = directory
-        if friends is not None:
-            self.friends = friends
+        self.friends = friends
         self.tag = tag
 
     def __str__(self):
