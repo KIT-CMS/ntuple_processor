@@ -4,7 +4,7 @@ from .booking import Unit
 from .booking import dataset_from_crownoutput
 from .booking import dataset_from_artusoutput
 from .utils import Selection
-from .utils import Variation
+from .utils import Systematic
 
 import re
 
@@ -51,78 +51,78 @@ def get_quantities_from_expression(expression):
     return set(quantities)
 
 
-class ReplaceVariable(Variation):
+class ReplaceVariable(Systematic):
     """
-    Variation that with the method create makes a deepcopy of
+    Systematic that with the method create makes a deepcopy of
     the selections and actions inside the unit passed as argument and substitutes
-    the directory attribute with the according variation.
+    the directory attribute with the according systematic.
 
     Args:
         name (str): name used to identify the instance of
             this class
-        variation (str)
+        systematic (str)
     """
 
-    def __init__(self, name, variation):
-        Variation.__init__(self, name)
-        self.variation = variation
+    def __init__(self, name, systematic):
+        Systematic.__init__(self, name)
+        self.systematic = systematic
 
     def create(self, unit):
         new_selections = deepcopy(unit.selections)
         new_actions = deepcopy(unit.actions)
         replaced = False
-        if self.variation not in unit.dataset.quantities_per_vars:
+        if self.systematic not in unit.dataset.quantities_per_vars:
             logger.fatal(
-                f"Variation {self.variation} not found in ntuple for dataset {unit.dataset.name}"
+                f"Systematic {self.systematic} not found in ntuple for dataset {unit.dataset.name}"
             )
             logger.fatal(
-                f"Available variations are: {unit.dataset.quantities_per_vars.keys()}"
+                f"Available systematics are: {unit.dataset.quantities_per_vars.keys()}"
             )
             raise NameError
         else:
-            list_of_quantities = set(unit.dataset.quantities_per_vars[self.variation])
+            list_of_quantities = set(unit.dataset.quantities_per_vars[self.systematic])
             for sel_obj in new_selections:
                 for cut in sel_obj.cuts:
-                    # if any quantities used in the cut are in the list of quantities affected by the variation, replace them
+                    # if any quantities used in the cut are in the list of quantities affected by the systematic, replace them
                     for quantity in list_of_quantities & get_quantities_from_expression(
                         cut.expression
                     ):
                         cut.expression = re.sub(
                             rf"\b({quantity})\b",
-                            f"{quantity}__{self.variation}",
+                            f"{quantity}__{self.systematic}",
                             cut.expression,
                         )
                         replaced = True
                         logger.debug(
-                            f"Replaced expression {quantity} with {cut.expression} ( quantity: {quantity}, var: {self.variation})"
+                            f"Replaced expression {quantity} with {cut.expression} ( quantity: {quantity}, var: {self.systematic})"
                         )
                 for weight in sel_obj.weights:
-                    # if any quantities used in the weight are in the list of quantities affected by the variation, replace them
+                    # if any quantities used in the weight are in the list of quantities affected by the systematic, replace them
                     for quantity in list_of_quantities & get_quantities_from_expression(
                         weight.expression
                     ):
                         logger.debug(f"Initial weight: {weight.expression}")
                         weight.expression = re.sub(
                             rf"\b({quantity})\b",
-                            f"{quantity}__{self.variation}",
+                            f"{quantity}__{self.systematic}",
                             weight.expression,
                         )
                         replaced = True
                         logger.debug(
-                            f"Replaced weight {quantity} with {weight.expression} ( quantity: {quantity}, var: {self.variation})"
+                            f"Replaced weight {quantity} with {weight.expression} ( quantity: {quantity}, var: {self.systematic})"
                         )
             for act in new_actions:
                 old_act = deepcopy(act.variable)
-                # if any quantities used in the action variables are in the list of quantities affected by the variation, replace them
+                # if any quantities used in the action variables are in the list of quantities affected by the systematic, replace them
                 for quantity in list_of_quantities & get_quantities_from_expression(
                     act.variable
                 ):
                     logger.debug(
-                        f"Replacing quantity {quantity} with {quantity}__{self.variation}"
+                        f"Replacing quantity {quantity} with {quantity}__{self.systematic}"
                     )
                     act.variable = re.sub(
                         rf"\b({quantity})\b",
-                        f"{quantity}__{self.variation}",
+                        f"{quantity}__{self.systematic}",
                         act.variable,
                     )
                     replaced = True
@@ -130,17 +130,17 @@ class ReplaceVariable(Variation):
                     old_act = deepcopy(act.variable)
         if not replaced:
             logger.warning(
-                f"[Unused Variation] For variation {self.variation} on unit {unit.dataset.name} no quantities were replaced, the shift has no effect.."
+                f"[Unused Systematic] For systematic {self.systematic} on unit {unit.dataset.name} no quantities were replaced, the shift has no effect.."
             )
             logger.warning(
-                f"Quantities affected by {self.variation}: {list_of_quantities} "
+                f"Quantities affected by {self.systematic}: {list_of_quantities} "
             )
         return Unit(unit.dataset, new_selections, new_actions, self)
 
 
-class ChangeDataset(Variation):
+class ChangeDataset(Systematic):
     """
-    Variation that with the method create makes a deepcopy of
+    Systematic that with the method create makes a deepcopy of
     the dataset inside the unit passed as argument and substitutes
     the directory attribute with folder_name.
 
@@ -162,7 +162,7 @@ class ChangeDataset(Variation):
     """
 
     def __init__(self, name, folder_name):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.folder_name = folder_name
 
     def create(self, unit):
@@ -182,9 +182,9 @@ class ChangeDataset(Variation):
         return Unit(new_dataset, unit.selections, unit.actions, self)
 
 
-class ReplaceCut(Variation):
+class ReplaceCut(Systematic):
     def __init__(self, name, replaced_name, cut):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.replaced_name = replaced_name
         self.cut = cut
 
@@ -224,9 +224,9 @@ class ReplaceCut(Variation):
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
-class ReplaceWeight(Variation):
+class ReplaceWeight(Systematic):
     def __init__(self, name, replaced_name, weight):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.replaced_name = replaced_name
         self.weight = weight
 
@@ -266,9 +266,9 @@ class ReplaceWeight(Variation):
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
-class RemoveCut(Variation):
+class RemoveCut(Systematic):
     def __init__(self, name, removed_name):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.removed_name = removed_name
 
     def create(self, unit):
@@ -295,9 +295,9 @@ class RemoveCut(Variation):
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
-class RemoveWeight(Variation):
+class RemoveWeight(Systematic):
     def __init__(self, name, removed_name):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.removed_name = removed_name
 
     def create(self, unit):
@@ -324,9 +324,9 @@ class RemoveWeight(Variation):
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
-class AddCut(Variation):
+class AddCut(Systematic):
     def __init__(self, name, cut):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.cut = cut
 
     def create(self, unit):
@@ -335,9 +335,9 @@ class AddCut(Variation):
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
-class AddWeight(Variation):
+class AddWeight(Systematic):
     def __init__(self, name, weight):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.weight = weight
 
     def create(self, unit):
@@ -346,9 +346,9 @@ class AddWeight(Variation):
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
-class SquareWeight(Variation):
+class SquareWeight(Systematic):
     def __init__(self, name, weight_name):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.weight_name = weight_name
 
     def create(self, unit):
@@ -378,9 +378,9 @@ class SquareWeight(Variation):
         return Unit(unit.dataset, new_selections, unit.actions, self)
 
 
-class ReplaceCutAndAddWeight(Variation):
+class ReplaceCutAndAddWeight(Systematic):
     def __init__(self, name, replaced_name, cut, weight):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.replace_cut = ReplaceCut(name, replaced_name, cut)
         self.add_weight = AddWeight(name, weight)
 
@@ -389,9 +389,9 @@ class ReplaceCutAndAddWeight(Variation):
         return self.add_weight.create(unit)
 
 
-class ReplaceMultipleCuts(Variation):
+class ReplaceMultipleCuts(Systematic):
     def __init__(self, name, replaced_names, cuts):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.replace_cuts = [
             ReplaceCut(name, rep_name, cut)
             for rep_name, cut in zip(replaced_names, cuts)
@@ -403,9 +403,9 @@ class ReplaceMultipleCuts(Variation):
         return unit
 
 
-class ReplaceMultipleCutsAndAddWeight(Variation):
+class ReplaceMultipleCutsAndAddWeight(Systematic):
     def __init__(self, name, replaced_names, cuts, weight):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.replace_cuts = [
             ReplaceCut(name, rep_name, cut)
             for rep_name, cut in zip(replaced_names, cuts)
@@ -418,9 +418,9 @@ class ReplaceMultipleCutsAndAddWeight(Variation):
         return self.add_weight.create(unit)
 
 
-class ChangeDatasetReplaceCutAndAddWeight(Variation):
+class ChangeDatasetReplaceCutAndAddWeight(Systematic):
     def __init__(self, name, folder_name, replaced_name, cut, weight):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.change_dataset = ChangeDataset(name, folder_name)
         self.repl_and_add_weight = ReplaceCutAndAddWeight(
             name, replaced_name, cut, weight
@@ -431,9 +431,9 @@ class ChangeDatasetReplaceCutAndAddWeight(Variation):
         return self.repl_and_add_weight.create(unit)
 
 
-class ChangeDatasetReplaceMultipleCutsAndAddWeight(Variation):
+class ChangeDatasetReplaceMultipleCutsAndAddWeight(Systematic):
     def __init__(self, name, folder_name, replaced_names, cuts, weight):
-        Variation.__init__(self, name)
+        Systematic.__init__(self, name)
         self.change_dataset = ChangeDataset(name, folder_name)
         self.repl_and_add_weight = ReplaceMultipleCutsAndAddWeight(
             name, replaced_names, cuts, weight
@@ -444,10 +444,10 @@ class ChangeDatasetReplaceMultipleCutsAndAddWeight(Variation):
         return self.repl_and_add_weight.create(unit)
 
 
-class ReplaceVariableReplaceCut(Variation):
-    def __init__(self, name, variation, replaced_name, cut):
-        Variation.__init__(self, name)
-        self.replace_variable = ReplaceVariable(name, variation)
+class ReplaceVariableReplaceCut(Systematic):
+    def __init__(self, name, systematic, replaced_name, cut):
+        Systematic.__init__(self, name)
+        self.replace_variable = ReplaceVariable(name, systematic)
         self.replace_cut = ReplaceCut(name, replaced_name, cut)
 
     def create(self, unit):
@@ -455,10 +455,10 @@ class ReplaceVariableReplaceCut(Variation):
         return self.replace_cut.create(unit)
 
 
-class ReplaceVariableReplaceCutAndAddWeight(Variation):
-    def __init__(self, name, variation, replaced_name, cut, weight):
-        Variation.__init__(self, name)
-        self.replace_variable = ReplaceVariable(name, variation)
+class ReplaceVariableReplaceCutAndAddWeight(Systematic):
+    def __init__(self, name, systematic, replaced_name, cut, weight):
+        Systematic.__init__(self, name)
+        self.replace_variable = ReplaceVariable(name, systematic)
         self.repl_and_add_weight = ReplaceCutAndAddWeight(
             name, replaced_name, cut, weight
         )

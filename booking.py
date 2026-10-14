@@ -8,7 +8,7 @@ from .utils import (
     Histogram,
     Ntuple,
     Selection,
-    Variation,
+    Systematic,
     Weight,
 )
 
@@ -368,7 +368,7 @@ def dataset_from_crownoutput(
         dataset (Dataset): Dataset object containing TTrees
     """
 
-    def get_quantities_per_variation(root_file, friend_paths=None):
+    def get_quantities_per_systematic(root_file, friend_paths=None):
         """Shift name -> list of quantities that carry a `<quantity>__<shift>`
         leaf, scanning the main ntuple AND every attached friend tree.
 
@@ -380,7 +380,7 @@ def dataset_from_crownoutput(
         ntuple only would silently make `ReplaceVariable` treat every such
         quantity as unshifted -- it would just never find it in the map, no
         error, no warning -- so any friend-only shifted quantity would keep
-        reading its nominal branch under every systematic variation.
+        reading its nominal branch under every systematic.
         """
         quantities_per_vars = {}
 
@@ -537,7 +537,7 @@ def dataset_from_crownoutput(
         elif "quantities_per_vars" in validation_dict:
             pass
         else:
-            validation_dict["quantities_per_vars"] = get_quantities_per_variation(
+            validation_dict["quantities_per_vars"] = get_quantities_per_systematic(
                 root_file, friends
             )
             root_file.Close()
@@ -782,7 +782,7 @@ def dataset_from_crownoutput(
         # os.getpid() alone is not unique enough: with validation now always
         # redone (never read back from cache -- see the read side above),
         # every call writes here, including multiple concurrent calls for the
-        # SAME dataset (one per systematic variation) from multiple THREADS
+        # SAME dataset (one per systematic) from multiple THREADS
         # of the same process, which all share one pid -- two such calls
         # racing on an identical tmp_path let one os.replace() consume the
         # file out from under the other, which then hits FileNotFoundError
@@ -811,8 +811,8 @@ class Unit:
         selections (list): List of Selection-type objects
         actions (Action): Actions to perform on the processed
             dataset, can be 'Histogram' or 'Count'
-        variation (Variation): Variations applied, meaning
-            that this selection is the result of a variation
+        systematic (Systematic): Systematics applied, meaning
+            that this selection is the result of a systematic
             applied on other selections
 
     Attributes:
@@ -821,15 +821,15 @@ class Unit:
         selections (list): List of Selection-type objects
         actions (Action): Actions to perform on the processed
             dataset, can be 'Histogram' or 'Count'
-        variation (Variation): Variations applied, meaning
-            that this selection is the result of a variation
+        systematic (Systematic): Systematics applied, meaning
+            that this selection is the result of a systematic
             applied on other selections
     """
 
-    def __init__(self, dataset, selections, actions, variation=None):
+    def __init__(self, dataset, selections, actions, systematic=None):
         self.__set_dataset(dataset)
         self.__set_selections(selections)
-        self.__set_actions(actions, variation)
+        self.__set_actions(actions, systematic)
 
     def __str__(self):
         layout = "\n".join(
@@ -854,16 +854,16 @@ class Unit:
                 raise TypeError("not a Selection object.")
         self.selections = selections
 
-    def __set_actions(self, actions, variation):
+    def __set_actions(self, actions, systematic):
         if not isinstance(actions, list):
             raise TypeError("not a list object.")
         for action in actions:
             if not isinstance(action, Action):
                 raise TypeError("not an Action object.")
-        self.actions = [self.__set_new_action(action, variation) for action in actions]
+        self.actions = [self.__set_new_action(action, systematic) for action in actions]
 
-    def __set_new_action(self, action, variation):
-        if variation is None:
+    def __set_new_action(self, action, systematic):
+        if systematic is None:
             name = "#".join(
                 [
                     self.dataset.name,
@@ -873,10 +873,10 @@ class Unit:
                 ]
             )
         else:
-            if not isinstance(variation, Variation):
-                raise TypeError("not a Variation object.")
-            self.variation = variation
-            name = action.name.replace("Nominal", self.variation.name)
+            if not isinstance(systematic, Systematic):
+                raise TypeError("not a Systematic object.")
+            self.systematic = systematic
+            name = action.name.replace("Nominal", self.systematic.name)
         if isinstance(action, Histogram):
             return Histogram(name, action.variable, action.edges)
         elif isinstance(action, Count):
@@ -915,14 +915,14 @@ class UnitManager:
 
     booked_units = []
 
-    def book(self, units, variations=None, enable_check=True, register_raw=True):
+    def book(self, units, systematics=None, enable_check=True, register_raw=True):
         # register_raw=False: skip registering `units` themselves under
-        # their own (pre-variation) action name -- only the variation-created
+        # their own (pre-systematic) action name -- only the systematic-created
         # copies below get added. Needed for callers whose `units` are
         # already a non-nominal-region selection (e.g. produce_shapes.py's
         # same-sign QCD control-region booking, whose `units_qcd_ss` are
         # SR_mask_ss-selected) that only want a distinctly-named copy (via a
-        # Variation, e.g. "same_sign") written out -- NOT also a copy under
+        # Systematic, e.g. "same_sign") written out -- NOT also a copy under
         # the raw unit's own action name, which defaults to "Nominal"
         # (ntuple_processor/booking.py::Unit.__set_new_action) exactly like
         # every OS/signal-region unit's, since Selection objects here are
@@ -931,18 +931,18 @@ class UnitManager:
         # one same-sign-selected) can produce byte-identical
         # "...#Nominal#..." histogram names, and whichever was processed
         # last during RunManager.run_locally() silently won on disk -- with
-        # --skip-systematic-variations (the only path that ever ran, since
+        # --skip-systematics (the only path that ever ran, since
         # the real OS "Nominal" booking used to only happen as a side effect
-        # of systematic-variation calls), the same-sign one always won.
+        # of systematic calls), the same-sign one always won.
         if register_raw:
             for unit in units:
                 if unit not in self.booked_units:
                     self.booked_units.append(unit)
-        if variations:
-            for variation in variations:
-                logger.debug("Applying variation {}".format(variation))
+        if systematics:
+            for systematic in systematics:
+                logger.debug("Applying systematic {}".format(systematic))
                 for unit in units:
-                    self.apply_variation(unit, variation)
+                    self.apply_systematic(unit, systematic)
         if enable_check:
             for action1, action2 in itertools.combinations(
                 [j for i in [unit.actions for unit in self.booked_units] for j in i], 2
@@ -955,6 +955,6 @@ class UnitManager:
                     )
                     raise NameError
 
-    def apply_variation(self, unit, variation):
-        new_unit = variation.create(unit)
+    def apply_systematic(self, unit, systematic):
+        new_unit = systematic.create(unit)
         self.booked_units.append(new_unit)
