@@ -220,7 +220,8 @@ class RunManager:
         for op in final_results:
             obj = op.GetValue() if hasattr(op, "GetValue") else op
             directory, name = obj.GetName().rsplit("/", 1)
-            root_file.mkdir(directory, "", True).cd()
+            root_file.mkdir(directory, "", True)
+            root_file.cd(directory)
             obj.SetName(name)
             obj.Write()
         root_file.Close()
