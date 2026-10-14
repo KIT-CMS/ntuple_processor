@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ROOT import gROOT
 
 from .utils import (
@@ -824,11 +826,18 @@ class Unit:
         systematic (Systematic): Systematics applied, meaning
             that this selection is the result of a systematic
             applied on other selections
+        path (str): histogram path after the action name, '<selections>/<dataset>' if not given
+
+    Action names are '<action>/<path>' for the nominal unit and systematic_path(nominal name, systematic name)
+    for the shifted ones; systematic_path can be overridden by the user to change how shifts are named.
     """
 
-    def __init__(self, dataset, selections, actions, systematic=None):
+    systematic_path = staticmethod(lambda nominal, name: f"{nominal}_{name}")
+
+    def __init__(self, dataset, selections, actions, systematic=None, path=None):
         self.__set_dataset(dataset)
         self.__set_selections(selections)
+        self.path = path or "/".join(["_".join(selection.name for selection in self.selections), self.dataset.name])
         self.__set_actions(actions, systematic)
 
     def __str__(self):
@@ -864,23 +873,20 @@ class Unit:
 
     def __set_new_action(self, action, systematic):
         if systematic is None:
-            name = "#".join(
-                [
-                    self.dataset.name,
-                    "-".join([selection.name for selection in self.selections]),
-                    "Nominal",
-                    action.name,
-                ]
-            )
+            nominal = name = f"{action.name}/{self.path}"
         else:
             if not isinstance(systematic, Systematic):
                 raise TypeError("not a Systematic object.")
             self.systematic = systematic
-            name = action.name.replace("Nominal", self.systematic.name)
+            # composite systematics create intermediate units, so always rename from the nominal name
+            nominal = action.nominal
+            name = Unit.systematic_path(nominal, self.systematic.name)
         if isinstance(action, Histogram):
-            return Histogram(name, action.variable, action.edges)
+            new_action = Histogram(name, action.variable, action.edges)
         elif isinstance(action, Count):
-            return Count(name, action.variable)
+            new_action = Count(name, action.variable)
+        new_action.nominal = nominal
+        return new_action
 
     def __eq__(self, other):
         return all(
@@ -916,24 +922,7 @@ class UnitManager:
     booked_units = []
 
     def book(self, units, systematics=None, enable_check=True, register_raw=True):
-        # register_raw=False: skip registering `units` themselves under
-        # their own (pre-systematic) action name -- only the systematic-created
-        # copies below get added. Needed for callers whose `units` are
-        # already a non-nominal-region selection (e.g. produce_shapes.py's
-        # same-sign QCD control-region booking, whose `units_qcd_ss` are
-        # SR_mask_ss-selected) that only want a distinctly-named copy (via a
-        # Systematic, e.g. "same_sign") written out -- NOT also a copy under
-        # the raw unit's own action name, which defaults to "Nominal"
-        # (ntuple_processor/booking.py::Unit.__set_new_action) exactly like
-        # every OS/signal-region unit's, since Selection objects here are
-        # named after the channel alone, not the region. Registering both
-        # used to silently collide: two Unit objects (one truly OS-selected,
-        # one same-sign-selected) can produce byte-identical
-        # "...#Nominal#..." histogram names, and whichever was processed
-        # last during RunManager.run_locally() silently won on disk -- with
-        # --skip-systematics (the only path that ever ran, since
-        # the real OS "Nominal" booking used to only happen as a side effect
-        # of systematic calls), the same-sign one always won.
+        # register_raw=False: only book the systematic copies, e.g. a region swap of units already booked as nominal
         if register_raw:
             for unit in units:
                 if unit not in self.booked_units:

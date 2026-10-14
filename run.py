@@ -218,7 +218,11 @@ class RunManager:
         )
         root_file = TFile(output, "RECREATE")
         for op in final_results:
-            op.Write()
+            obj = op.GetValue() if hasattr(op, "GetValue") else op
+            directory, name = obj.GetName().rsplit("/", 1)
+            root_file.mkdir(directory, "", True).cd()
+            obj.SetName(name)
+            obj.Write()
         root_file.Close()
 
     def node_to_root(self, node, final_results=None, rcw=None, primary_nodes=None):
@@ -322,9 +326,7 @@ class RunManager:
 
         # Create macro cut string from sub-cuts applied
         # (saved earlier as rdf columns)
-        cut_name = name.replace("#", "_")
-        cut_name = cut_name.replace("-", "_")
-        cut_name = "cut_" + cut_name
+        cut_name = "cut_" + re.sub(r"\W", "_", name)
         ordered_cuts = self._order_cuts(rcw.cuts)
         cut_expression = " && ".join(["(" + cut.expression + ")" for cut in ordered_cuts])
         cut_expression = cut_expression.replace("\n", "").replace(" ", "")
@@ -342,8 +344,8 @@ class RunManager:
                     cut_expression=cut_expression,
                 )
             else:  # default formatting
-                process, channel_and_sample, *_ = name.split("#")
-                channel, *_ = channel_and_sample.split("-")
+                _, channel_and_category, process = name.split("/")[:3]
+                channel, *_ = channel_and_category.split("_")
                 self.config[channel][process]["unformatted"]["hist_edges"][var] = NestedDefaultDict(
                     edges="[" + ", ".join(map(str, edges.tolist())) + "]",  # to not blow up the yaml due to list formatting
                     nbins=nbins,
@@ -374,15 +376,14 @@ class RunManager:
 
             weight_name = ""
             if weight_expression:
-                weight_name = name.replace("#", "_")
-                weight_name = weight_name.replace("-", "_")
+                weight_name = re.sub(r"\W", "_", name)
                 if logger.getEffectiveLevel() == logging.DEBUG:
                     logger.debug(f"  > Defining Weight: {weight_name}")
                 df = df.Define(weight_name, weight_expression)
 
             plot_var = var
             if re.search(r"(&&|\|\||\+|-|\*|/|<=|>=|<|>|==|!=|\(|\)|\.)", var):
-                plot_var = name.split("#")[-1]
+                plot_var = re.sub(r"\W", "_", name.split("/")[0])
                 if logger.getEffectiveLevel() == logging.DEBUG:
                     logger.debug(f"  > Defining Complex Variable: {plot_var} = {var}")
                 df = df.Define(plot_var, var)
