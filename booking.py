@@ -30,7 +30,7 @@ from XRootD import client
 try:
     import logging
 
-    from config.logging_setup_configs import setup_logging
+    from CustomLogging import setup_logging
     logger = setup_logging(logger=logging.getLogger(__name__))
 except ModuleNotFoundError:
     logger = logging.getLogger(__name__)
